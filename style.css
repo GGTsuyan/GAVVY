@@ -1,10 +1,10 @@
 :root {
-  --primary-color: #ff6b9d;
-  --secondary-color: #9d65c9;
-  --accent-color: #5d54a4;
-  --text-color: #333;
-  --light-color: #fff;
-  --background-color: #f9f3f8;
+  --primary-color: #7a0d0d;
+  --secondary-color: #500707;
+  --accent-color: #a11a1a;
+  --text-color: #EDEDED;
+  --light-color: #0f0f0f;
+  --background-color: linear-gradient(180deg,#050505,#12060a);
 }
 
 * {
@@ -14,8 +14,8 @@
 }
 
 body {
-  font-family: 'Poppins', sans-serif;
-  background-color: var(--background-color);
+  font-family: 'Inter', sans-serif;
+  background: var(--background-color);
   color: var(--text-color);
   line-height: 1.6;
   min-height: 100vh;
@@ -277,9 +277,7 @@ body {
 
 /* Hearts animation */
 .hearts-container {
-  position: relative;
-  height: 100px;
-  margin: 1rem 0;
+  display: none; /* hide decorative hearts for a refined look */
 }
 
 .heart {
