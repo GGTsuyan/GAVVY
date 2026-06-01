@@ -1,7 +1,7 @@
 // GAVVY - Dark Luxury Couple App
 const GAVVY = (() => {
   let state = {
-    couple: { name1: 'Gab', name2: 'Avi', startDate: null, anniversary: null },
+    couple: { name1: 'Gab', name2: 'Avi', startDate: null },
     memories: [],
     notes: [],
     events: [],
@@ -11,7 +11,11 @@ const GAVVY = (() => {
     ],
     lists: { dateIdeas: [], travelList: [], movies: [], restaurants: [], giftIdeas: [] },
     trips: [],
-    periodTracker: { entries: [], lastPeriodDate: null, averageLength: 28, periodLength: 5 },
+    periodTracker: { entries: [
+      { id: '1', date: '2026-02-18', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
+      { id: '2', date: '2026-03-26', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
+      { id: '3', date: '2026-05-02', periodLength: 6, flow: 'normal', symptoms: [], note: '' }
+    ], lastPeriodDate: '2026-05-02', averageLength: 36, periodLength: 6 },
     auth: { currentUser: null, token: null },
     questions: [
       'What place would you like to visit together?',
@@ -62,6 +66,20 @@ const GAVVY = (() => {
   }
 
   load();
+  
+  // Force update period tracker with correct data
+  state.periodTracker = {
+    entries: [
+      { id: '1', date: '2026-02-18', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
+      { id: '2', date: '2026-03-26', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
+      { id: '3', date: '2026-05-02', periodLength: 6, flow: 'normal', symptoms: [], note: '' }
+    ],
+    lastPeriodDate: '2026-05-02',
+    averageLength: 36,
+    periodLength: 6
+  };
+  save();
+  
   state.couple.name1 = state.couple.name1 || 'Gab';
   state.couple.name2 = state.couple.name2 || 'Avi';
   if (state.couple.name1 === 'You') state.couple.name1 = 'Gab';
@@ -80,12 +98,7 @@ const GAVVY = (() => {
   // Clean up malformed goals
   state.goals = state.goals.filter(g => g && g.id && g.emoji && g.title && g.type !== undefined && g.progress !== undefined && g.target !== undefined);
   
-  state.surprise = state.surprise || {
-    Gab: { preview: 'Message locked until June 15, 2026 · 8:00 PM', message: 'Every day with you feels like the most beautiful adventure.', unlockDate: '2026-06-15T20:00:00' },
-    Avi: { preview: 'Message locked until June 15, 2026 · 8:00 PM', message: 'Every day with you feels like the most beautiful adventure.', unlockDate: '2026-06-15T20:00:00' }
-  };
-  if (!state.surprise.Gab) state.surprise.Gab = { preview: 'Message locked until June 15, 2026 · 8:00 PM', message: 'Every day with you feels like the most beautiful adventure.', unlockDate: '2026-06-15T20:00:00' };
-  if (!state.surprise.Avi) state.surprise.Avi = { preview: 'Message locked until June 15, 2026 · 8:00 PM', message: 'Every day with you feels like the most beautiful adventure.', unlockDate: '2026-06-15T20:00:00' };
+
 
   function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
 
@@ -275,41 +288,64 @@ const GAVVY = (() => {
     document.getElementById('closeModal').onclick = () => document.getElementById('memoryModal').parentElement.classList.remove('active');
   }
 
-  function showSurprise() {
-    const user = (state.auth.currentUser && state.auth.currentUser.username) ? state.auth.currentUser.username : state.couple.name1;
-    const surprise = state.surprise[user] || state.surprise[state.couple.name1];
-    const receiver = user === state.couple.name1 ? state.couple.name2 : state.couple.name1;
-    const unlock = new Date(surprise.unlockDate || '2026-06-15T20:00:00');
-    const now = new Date();
+
+
+  function showDateEventModal(dateStr) {
     const modal = document.getElementById('memoryModal');
     if (!modal) return;
-    if (now >= unlock) {
-      modal.innerHTML = `
-        <div class="modal-content">
-          <button class="modal-close" id="closeModal">✕</button>
-          <div class="surprise-box">
-            <div class="label">Surprise Box</div>
-            <div class="surprise-title">Message unlocked</div>
-            <div class="muted" style="margin-top:12px">❤️ Sent to ${receiver}</div>
-            <p style="margin-top:16px;color:var(--text)">${surprise.message}</p>
-          </div>
+    const eventsOnDate = state.events.filter(e => e.date === dateStr);
+    const dateObj = new Date(dateStr + 'T00:00:00');
+    const dateDisplay = dateObj.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    
+    modal.innerHTML = `
+      <div class="modal-content">
+        <button class="modal-close" id="closeDateModal">✕</button>
+        <h3 style="margin-bottom:16px">${dateDisplay}</h3>
+        <div id="eventsListModal" style="margin-bottom:20px;max-height:200px;overflow-y:auto">
+          ${eventsOnDate.length === 0 ? '<div class="muted">No events on this date</div>' : eventsOnDate.map(e => `
+            <div style="padding:12px;background:rgba(212,175,55,0.05);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+              <div><span style="font-size:1.2rem">${e.emoji || '●'}</span> <strong>${e.title}</strong></div>
+              <button class="delete-event-modal" data-event-date="${e.date}" data-event-title="${e.title}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:1.1rem">×</button>
+            </div>
+          `).join('')}
         </div>
-      `;
-    } else {
-      modal.innerHTML = `
-        <div class="modal-content">
-          <button class="modal-close" id="closeModal">✕</button>
-          <div class="surprise-box locked">
-            <div class="label">Surprise Box</div>
-            <div class="surprise-title">Message locked</div>
-            <div class="muted" style="margin-top:12px">${surprise.preview}</div>
-            <div style="margin-top:16px">❤️ Scheduled for ${new Date(surprise.unlockDate).toLocaleDateString()}</div>
-          </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="modalEventEmoji" placeholder="🍽️" value="🍽️" style="width:50px;text-align:center;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
+          <input id="modalEventTitle" placeholder="Event title" style="flex:1;min-width:150px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
+          <button id="addEventFromModal" class="btn">Add</button>
         </div>
-      `;
-    }
+      </div>
+    `;
+    
     document.getElementById('memoryModal').parentElement.classList.add('active');
-    document.getElementById('closeModal').onclick = () => document.getElementById('memoryModal').parentElement.classList.remove('active');
+    document.getElementById('closeDateModal').onclick = () => document.getElementById('memoryModal').parentElement.classList.remove('active');
+    
+    setTimeout(() => {
+      const addBtn = document.getElementById('addEventFromModal');
+      if (addBtn) {
+        addBtn.onclick = () => {
+          const emoji = document.getElementById('modalEventEmoji').value || '●';
+          const title = document.getElementById('modalEventTitle').value.trim();
+          if (!title) return;
+          state.events.push({ emoji, date: dateStr, title });
+          save();
+          navigate('calendar');
+        };
+      }
+      
+      document.querySelectorAll('.delete-event-modal').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const eventDate = btn.dataset.eventDate;
+          const eventTitle = btn.dataset.eventTitle;
+          if (confirm(`Delete "${eventTitle}"?`)) {
+            state.events = state.events.filter(evt => !(evt.date === eventDate && evt.title === eventTitle));
+            save();
+            showDateEventModal(dateStr);
+          }
+        };
+      });
+    }, 10);
   }
 
   function renderHome() {
@@ -328,6 +364,7 @@ const GAVVY = (() => {
     root.appendChild(banner);
 
     const startDateCard = el('div', 'card');
+    startDateCard.style.marginTop = '24px';
     startDateCard.innerHTML = `
       <div class="label">Relationship Start Date</div>
       <input type="date" id="setStart" value="${state.couple.startDate}" style="margin-top:16px;width:100%;" disabled>
@@ -335,6 +372,7 @@ const GAVVY = (() => {
     root.appendChild(startDateCard);
 
     const questionCard = el('div', 'question-card');
+    questionCard.style.marginTop = '24px';
     questionCard.innerHTML = `
       <div class="question-label">Today's Question</div>
       <div class="question-text">"${state.questions[state.currentQuestion % state.questions.length]}"</div>
@@ -342,7 +380,23 @@ const GAVVY = (() => {
     `;
     root.appendChild(questionCard);
 
+    const moodCard = el('div', 'card mood-card');
+    moodCard.style.marginTop = '24px';
+    moodCard.innerHTML = `
+      <div class="label">Mood Check-In</div>
+      <div class="mood-grid">
+        ${state.mood.customMoods.map(m => `<button class="mood-option" data-mood="${m}">${m}</button>`).join('')}
+      </div>
+      <div class="mood-status">
+        <div><strong>${state.couple.name1}:</strong> ${state.mood.current[state.couple.name1] || 'Not set'}</div>
+        <div><strong>${state.couple.name2}:</strong> ${state.mood.current[state.couple.name2] || 'Not set'}</div>
+        <div class="note-meta">Updated ${state.mood.updatedAt ? new Date(state.mood.updatedAt).toLocaleString() : 'never'}</div>
+      </div>
+    `;
+    root.appendChild(moodCard);
+
     const summaryRow = el('div', 'grid');
+    summaryRow.style.marginTop = '24px';
     const nextEvent = state.events.filter(e => new Date(e.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date))[0];
     const countdown = el('div', 'col-12');
     countdown.appendChild(el('div', 'countdown-widget', `
@@ -380,46 +434,8 @@ const GAVVY = (() => {
     summaryRow.appendChild(goalsGrid);
     root.appendChild(summaryRow);
 
-    // Date Ideas Section
-    const dateIdeasCard = el('div', 'card');
-    let dateIdeasHTML = `
-      <div style="margin-bottom: 16px;">
-        <div class="label">Date Ideas 💑</div>
-      </div>
-      <div style="display: grid; gap: 12px;" id="dateIdeasList">
-    `;
-    
-    if (state.lists.dateIdeas.length === 0) {
-      dateIdeasHTML += `<div class="muted" style="padding: 16px; text-align: center;">No date ideas yet. Let's plan something special! 🌹</div>`;
-    } else {
-      dateIdeasHTML += state.lists.dateIdeas.map((idea, idx) => `
-        <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(212, 175, 55, 0.05); border-radius: 4px;">
-          <input type="checkbox" ${idea.completed ? 'checked' : ''} class="date-idea-checkbox" data-index="${idx}" style="cursor: pointer; width: 18px; height: 18px;">
-          <span style="flex: 1; ${idea.completed ? 'text-decoration: line-through; color: var(--secondary);' : ''}">${idea.name}</span>
-          <button class="delete-idea-btn" data-index="${idx}" style="background: none; border: none; color: var(--accent); cursor: pointer; font-size: 1.1rem;">×</button>
-        </div>
-      `).join('');
-    }
-    
-    dateIdeasHTML += `</div>`;
-    dateIdeasCard.innerHTML = dateIdeasHTML;
-    root.appendChild(dateIdeasCard);
-
-    const moodCard = el('div', 'card mood-card');
-    moodCard.innerHTML = `
-      <div class="label">Mood Check-In</div>
-      <div class="mood-grid">
-        ${state.mood.customMoods.map(m => `<button class="mood-option" data-mood="${m}">${m}</button>`).join('')}
-      </div>
-      <div class="mood-status">
-        <div><strong>${state.couple.name1}:</strong> ${state.mood.current[state.couple.name1] || 'Not set'}</div>
-        <div><strong>${state.couple.name2}:</strong> ${state.mood.current[state.couple.name2] || 'Not set'}</div>
-        <div class="note-meta">Updated ${state.mood.updatedAt ? new Date(state.mood.updatedAt).toLocaleString() : 'never'}</div>
-      </div>
-    `;
-    root.appendChild(moodCard);
-
     const memoryCard = el('div', 'card recent-memory-card');
+    memoryCard.style.marginTop = '24px';
     if (state.memories.length > 0) {
       const recentMem = state.memories[0];
       memoryCard.innerHTML = `
@@ -437,27 +453,7 @@ const GAVVY = (() => {
     }
     root.appendChild(memoryCard);
 
-    const quickCard = el('div', 'card quick-actions');
-    quickCard.innerHTML = `
-      <div class="label">Quick Actions</div>
-      <div class="quick-grid">
-        <button class="btn btn-small" data-action="memory">Add Memory</button>
-        <button class="btn btn-small" data-action="dateIdea">Add Date Idea</button>
-        <button class="btn btn-small" data-action="note">Add Note</button>
-        <button class="btn btn-small" data-action="goal">Add Goal</button>
-        <button class="btn btn-small" data-action="trip">Add Trip</button>
-        <button class="btn btn-small" data-action="surprise">Send Surprise</button>
-      </div>
-    `;
-    root.appendChild(quickCard);
 
-    const surpriseCard = el('div', 'card surprise-card');
-    surpriseCard.innerHTML = `
-      <div class="label">Surprise Box</div>
-      <div class="surprise-preview">Message locked until June 15, 2026 · 8:00 PM</div>
-      <button class="btn btn-small" id="openSurprise">Open Box</button>
-    `;
-    root.appendChild(surpriseCard);
 
     setTimeout(() => {
       const goalCards = document.querySelectorAll('.goal-card-home');
@@ -500,21 +496,6 @@ const GAVVY = (() => {
         const viewMemBtn = document.getElementById('viewMemBtn');
         if (viewMemBtn) viewMemBtn.onclick = () => showMemoryDetail(state.memories[0]);
       }
-
-      quickCard.querySelectorAll('button[data-action]').forEach(btn => {
-        btn.onclick = () => {
-          const action = btn.dataset.action;
-          if (action === 'memory') navigate('memories');
-          else if (action === 'dateIdea') navigate('ideas');
-          else if (action === 'note') navigate('notes');
-          else if (action === 'goal') navigate('us');
-          else if (action === 'trip') navigate('trips');
-          else if (action === 'surprise') showSurprise();
-        };
-      });
-
-      const openSurprise = document.getElementById('openSurprise');
-      if (openSurprise) openSurprise.onclick = showSurprise;
 
       // Date Ideas Handlers
 
@@ -567,11 +548,11 @@ const GAVVY = (() => {
     addForm.innerHTML = `
       <div class="label">Add Memory</div>
       <div style="display:grid;grid-template-columns:80px 1fr;gap:12px;margin-top:16px">
-        <input id="memEmoji" placeholder="Emoji" value="📸" style="text-align:center">
-        <input id="memTitle" placeholder="Title" type="text">
-        <input id="memLocation" placeholder="Location" type="text" style="grid-column:1 / -1">
-        <input id="memFile" type="file" accept="image/*" style="grid-column:1 / -1">
-        <textarea id="memStory" placeholder="Story..." style="grid-column:1 / -1;height:100px"></textarea>
+        <input id="memEmoji" placeholder="Emoji" value="📸" style="text-align:center;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
+        <input id="memTitle" placeholder="Title" type="text" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
+        <input id="memLocation" placeholder="Location" type="text" style="grid-column:1 / -1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
+        <input id="memFile" type="file" accept="image/*" style="grid-column:1 / -1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
+        <textarea id="memStory" placeholder="Story..." style="grid-column:1 / -1;height:100px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)"></textarea>
       </div>
       <button id="addMemBtn" class="btn" style="margin-top:16px">Save Memory</button>
     `;
@@ -728,9 +709,6 @@ const GAVVY = (() => {
     }
 
     const calendarEvents = [...state.events];
-    if (nextAnniversary) {
-      calendarEvents.push({ emoji: '💖', title: 'Anniversary date', date: nextAnniversary.toISOString().split('T')[0] });
-    }
 
     function renderCal() {
       const year = currentMonth.getFullYear();
@@ -777,6 +755,8 @@ const GAVVY = (() => {
         if (date.toDateString() === new Date().toDateString()) day.classList.add('today');
         
         day.innerHTML = `<div>${i}</div>${eventsOn.map(e => `<div style="font-size:8px">${e.emoji || '●'}</div>`).join('')}`;
+        day.dataset.date = dateStr;
+        day.onclick = () => showDateEventModal(dateStr);
         grid.appendChild(day);
       }
 
@@ -787,7 +767,10 @@ const GAVVY = (() => {
       }, 10);
     }
 
-    renderCal();
+    // Pre-load calendar on first render
+    setTimeout(() => {
+      renderCal();
+    }, 50);
 
     // Events List
     const eventsList = el('div', 'card');
@@ -807,14 +790,15 @@ const GAVVY = (() => {
           `).join('') || '<div class="muted">No upcoming events</div>';
 
           list.querySelectorAll('.delEvBtn').forEach((b) => {
-            b.onclick = () => {
+            b.onclick = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
               const eventDate = b.dataset.date;
               const eventTitle = b.dataset.title;
               if (confirm(`Delete "${eventTitle}"?`)) {
-                state.events = state.events.filter(e => !(e.date === eventDate && e.title === eventTitle));
+                state.events = state.events.filter(evt => !(evt.date === eventDate && evt.title === eventTitle));
                 save();
                 renderEvents();
-                renderCal();
               }
             };
           });
@@ -822,38 +806,7 @@ const GAVVY = (() => {
       }, 10);
     }
 
-    // Add Event Form
-    const addForm = el('div', 'card');
-    addForm.innerHTML = `
-      <div class="label">Add Event</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <input id="evEmoji" placeholder="🍽️" value="🍽️" style="width:50px;text-align:center">
-        <input type="date" id="evDate">
-        <input id="evTitle" placeholder="Event title" style="flex:1;min-width:150px">
-        <button id="addEvBtn" class="btn">Add</button>
-      </div>
-    `;
-    root.appendChild(addForm);
-
     renderEvents();
-
-    setTimeout(() => {
-      const addEvBtn = document.getElementById('addEvBtn');
-      if (addEvBtn) {
-        addEvBtn.onclick = () => {
-          const emoji = document.getElementById('evEmoji').value || '•';
-          const d = document.getElementById('evDate').value;
-          const t = document.getElementById('evTitle').value.trim();
-          if (!d || !t) return;
-          state.events.push({ emoji, date: d, title: t });
-          save();
-          renderCal();
-          renderEvents();
-          document.getElementById('evDate').value = '';
-          document.getElementById('evTitle').value = '';
-        };
-      }
-    }, 10);
 
     return root;
   }
@@ -1174,100 +1127,355 @@ const GAVVY = (() => {
   }
 
   function renderPeriodTracker() {
-    const root = el('div');
+    const root = el('div', 'period-tracker-page');
     const tracker = state.periodTracker;
     const lastDate = tracker.lastPeriodDate ? new Date(tracker.lastPeriodDate) : null;
-    let nextStart = null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Calculate cycle phase
+    let dayInCycle = null;
+    let cyclePhase = 'off'; // off, menstrual, follicular, ovulation, luteal
+    let phaseColor = '#666';
+    let nextPeriodDate = null;
+    let fertileStart = null;
+    let fertileEnd = null;
+    
     if (lastDate) {
-      nextStart = new Date(lastDate);
-      nextStart.setDate(nextStart.getDate() + tracker.averageLength);
+      const daysDiff = Math.floor((today - lastDate) / 86400000);
+      dayInCycle = daysDiff % tracker.averageLength;
+      
+      // Period phase (first 5 days)
+      if (dayInCycle < tracker.periodLength) {
+        cyclePhase = 'menstrual';
+        phaseColor = '#e74c3c';
+      }
+      // Follicular phase (ends 2 days before ovulation)
+      else if (dayInCycle < Math.floor(tracker.averageLength / 2) - 2) {
+        cyclePhase = 'follicular';
+        phaseColor = '#f39c12';
+      }
+      // Ovulation window (5 days centered around day 14)
+      else if (dayInCycle >= Math.floor(tracker.averageLength / 2) - 2 && dayInCycle <= Math.floor(tracker.averageLength / 2) + 2) {
+        cyclePhase = 'ovulation';
+        phaseColor = '#e91e63';
+      }
+      // Luteal phase
+      else {
+        cyclePhase = 'luteal';
+        phaseColor = '#9b59b6';
+      }
+      
+      // Calculate fertile window (ovulation - 5 to +1)
+      const ovulationDay = Math.floor(tracker.averageLength / 2);
+      fertileStart = new Date(lastDate);
+      fertileStart.setDate(fertileStart.getDate() + (ovulationDay - 5));
+      fertileEnd = new Date(lastDate);
+      fertileEnd.setDate(fertileEnd.getDate() + (ovulationDay + 1));
+      
+      // Next period
+      nextPeriodDate = new Date(lastDate);
+      nextPeriodDate.setDate(nextPeriodDate.getDate() + tracker.averageLength);
+    }
+    
+    // Generate calendar for current and next month
+    function generateCycleCalendar() {
+      let html = '';
+      const currentMonth = new Date();
+      
+      for (let m = 0; m < 2; m++) {
+        const month = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + m, 1);
+        const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+        const firstDay = month.getDay();
+        
+        html += `
+          <div style="margin-bottom: 28px;">
+            <div style="font-weight: 700; margin-bottom: 14px; color: var(--text); font-size: 1.1rem;">${month.toLocaleDateString('default', { month: 'long', year: 'numeric' })}</div>
+            <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;">
+              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">S</div>
+              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">M</div>
+              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">T</div>
+              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">W</div>
+              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">T</div>
+              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">F</div>
+              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">S</div>
+        `;
+        
+        // Empty cells for days before month starts
+        for (let i = 0; i < firstDay; i++) {
+          html += `<div style="padding: 8px; text-align: center;"></div>`;
+        }
+        
+        // Days of month
+        for (let day = 1; day <= monthEnd.getDate(); day++) {
+          const date = new Date(month.getFullYear(), month.getMonth(), day);
+          date.setHours(0, 0, 0, 0);
+          
+          let dayColor = 'transparent';
+          let borderColor = '#333';
+          let textColor = 'var(--secondary)';
+          let isToday = false;
+          let emoji = '';
+          
+          // Check if today
+          if (date.getTime() === today.getTime()) {
+            isToday = true;
+            borderColor = 'var(--accent)';
+            textColor = 'var(--text)';
+          }
+          
+          // Check cycle phases if we have a last period date
+          if (lastDate && date >= lastDate) {
+            const diff = Math.floor((date - lastDate) / 86400000);
+            const cycleDay = diff % tracker.averageLength;
+            
+            // Menstrual phase (period days)
+            if (cycleDay < tracker.periodLength) {
+              dayColor = '#e74c3c';
+              emoji = '●';
+              textColor = '#fff';
+              borderColor = '#c0392b';
+            }
+            // Fertile window / Ovulation (5 days centered around ovulation day ~day 14)
+            else if (cycleDay >= Math.floor(tracker.averageLength / 2) - 2 && cycleDay <= Math.floor(tracker.averageLength / 2) + 2) {
+              dayColor = '#e91e63';
+              emoji = '♡';
+              textColor = '#fff';
+              borderColor = '#c2185b';
+            }
+          }
+          
+          html += `
+            <div style="
+              padding: 8px;
+              background: ${dayColor};
+              border: 2px solid ${borderColor};
+              border-radius: 10px;
+              text-align: center;
+              font-size: 0.9rem;
+              color: ${textColor};
+              font-weight: ${isToday ? '700' : '500'};
+              min-height: 32px;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              gap: 2px;
+            ">
+              ${emoji ? `<div style="font-size: 0.7rem; line-height: 1;">${emoji}</div>` : ''}
+              <div style="line-height: 1;">${day}</div>
+            </div>
+          `;
+        }
+        
+        html += `</div></div>`;
+      }
+      
+      return html;
     }
 
     root.innerHTML = `
-      <div class="flex-between" style="margin-bottom:18px">
-        <div>
-          <div class="label">Period Tracker</div>
-          <h2>Cycle rhythm & reminders</h2>
-        </div>
-        <button class="btn btn-small" id="addPeriodBtn">Log period</button>
+      <div style="margin-bottom:24px">
+        <div class="label" style="margin-bottom:8px">Period Tracker</div>
+        <h2 style="margin:0;margin-bottom:4px">Cycle Insights</h2>
+        <div class="note-meta">Track your cycle and stay informed</div>
       </div>
-      <div class="grid">
-        <div class="col-6">
-          <div class="card">
-            <div class="label">Last Period</div>
-            <div style="margin-top:14px;font-size:1.15rem">${lastDate ? lastDate.toLocaleDateString() : 'Not logged yet'}</div>
-            <div class="note-meta" style="margin-top:8px">Cycle length ${tracker.averageLength} days · Period ~${tracker.periodLength} days</div>
-            ${nextStart ? `<div class="note-meta" style="margin-top:12px">Next expected start: ${nextStart.toLocaleDateString()}</div>` : ''}
+
+      <div class="card" style="background: linear-gradient(135deg, ${phaseColor}22 0%, ${phaseColor}11 100%); border: 1px solid ${phaseColor}44; margin-bottom:20px">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div>
+            <div class="label">Current Phase</div>
+            <div style="font-size: 1.8rem; font-weight: 700; margin-top: 8px; color: ${phaseColor}">
+              ${cyclePhase === 'menstrual' ? '🩸 Menstrual' : cyclePhase === 'follicular' ? '🌱 Follicular' : cyclePhase === 'ovulation' ? '💗 Ovulation' : cyclePhase === 'luteal' ? '🌙 Luteal' : 'Not tracked'}
+            </div>
+            <div class="note-meta" style="margin-top: 8px">
+              ${dayInCycle !== null ? `Day ${dayInCycle + 1} of ${tracker.averageLength}` : 'Log your first period to start'}
+            </div>
           </div>
-        </div>
-        <div class="col-6">
-          <div class="card">
-            <div class="label">Mood & symptoms</div>
-            <div class="note-meta">Track how you feel before and during your cycle.</div>
-            <div class="emoji-pick" style="margin-top:16px">
-              <span>🌙</span><span>💧</span><span>😴</span><span>❤️</span><span>✨</span>
+          <div>
+            <div class="label">Next Period</div>
+            <div style="font-size: 1.8rem; font-weight: 700; margin-top: 8px; color: #e74c3c">
+              ${nextPeriodDate ? nextPeriodDate.toLocaleDateString() : '—'}
+            </div>
+            <div class="note-meta" style="margin-top: 8px">
+              ${nextPeriodDate ? Math.ceil((nextPeriodDate - today) / 86400000) + ' days away' : 'Log period to predict'}
             </div>
           </div>
         </div>
       </div>
-      <div class="card" style="margin-top:20px">
-        <div class="label">Cycle Log</div>
+
+      <div class="card" style="margin-bottom:20px">
+        <div class="label" style="margin-bottom:16px">Cycle Calendar</div>
+        <div id="cycleCalendar">${generateCycleCalendar()}</div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+          <div style="text-align: center;">
+            <div style="width: 16px; height: 16px; border-radius: 4px; background: #e74c3c; margin: 0 auto 8px;"></div>
+            <div style="font-size: 0.8rem; color: var(--secondary);">Menstrual</div>
+          </div>
+          <div style="text-align: center;">
+            <div style="width: 16px; height: 16px; border-radius: 4px; background: #e91e63; margin: 0 auto 8px;"></div>
+            <div style="font-size: 0.8rem; color: var(--secondary);">Fertile</div>
+          </div>
+          <div style="text-align: center;">
+            <div style="width: 16px; height: 16px; border-radius: 4px; background: rgba(255,255,255,0.1); margin: 0 auto 8px;"></div>
+            <div style="font-size: 0.8rem; color: var(--secondary);">Other</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <div class="label" style="margin-bottom:12px">Log Period</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <div class="note-meta" style="margin-bottom: 8px;">Period Start Date</div>
+            <input type="date" id="periodDate" value="${tracker.lastPeriodDate || ''}" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text);">
+          </div>
+          <div>
+            <div class="note-meta" style="margin-bottom: 8px;">Period Length (days)</div>
+            <input type="number" id="periodLength" placeholder="Length" value="${tracker.periodLength}" min="1" max="10" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text);">
+          </div>
+        </div>
+        <div>
+          <div class="note-meta" style="margin-bottom: 8px;">Flow & Symptoms</div>
+          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px;">
+            <button class="symptom-btn" data-flow="light" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">🟤 Light</button>
+            <button class="symptom-btn" data-flow="normal" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">🔴 Normal</button>
+            <button class="symptom-btn" data-flow="heavy" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">🔴🔴 Heavy</button>
+            <button class="symptom-btn" data-flow="spotting" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">🟠 Spotting</button>
+            <button class="symptom-btn" data-flow="none" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">⭕ None</button>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px;">
+          <button class="symptom-selector" data-symptom="cramps" title="Cramps" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">😣</button>
+          <button class="symptom-selector" data-symptom="headache" title="Headache" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">🤕</button>
+          <button class="symptom-selector" data-symptom="mood" title="Mood changes" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">😔</button>
+          <button class="symptom-selector" data-symptom="energy" title="Low energy" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">😴</button>
+          <button class="symptom-selector" data-symptom="bloating" title="Bloating" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">🫧</button>
+        </div>
+        <textarea id="periodNote" placeholder="Additional notes..." style="width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); height: 80px; resize: none;"></textarea>
+        <button id="savePeriodBtn" class="btn" style="margin-top:12px;width:100%;">Save Period Entry</button>
+      </div>
+
+      <div class="card">
+        <div class="label" style="margin-bottom:16px">Cycle History</div>
         <div id="periodLog"></div>
       </div>
     `;
 
-    const formCard = el('div', 'card');
-    formCard.innerHTML = `
-      <div class="label">New Period Entry</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">
-        <input type="date" id="periodDate" value="${tracker.lastPeriodDate || ''}">
-        <input type="number" id="periodLength" placeholder="Length (days)" value="${tracker.periodLength}">
-      </div>
-      <textarea id="periodNote" placeholder="Notes or symptoms" style="margin-top:12px;height:100px"></textarea>
-      <button id="savePeriodBtn" class="btn" style="margin-top:16px">Save Entry</button>
-    `;
-    root.appendChild(formCard);
+    root.appendChild(el('div'));
 
     function refreshLog() {
       const log = document.getElementById('periodLog');
       if (!log) return;
-      log.innerHTML = tracker.entries.slice().reverse().map(entry => `
-        <div class="note-item">
-          <div style="flex:1">
-            <div style="font-weight:600">${entry.date}</div>
-            <div class="note-meta">${entry.periodLength} day cycle · ${entry.note || 'No note'}</div>
+      if (tracker.entries.length === 0) {
+        log.innerHTML = '<div class="muted" style="padding:24px;text-align:center">No entries yet. Log your period to get started! 📊</div>';
+      } else {
+        log.innerHTML = tracker.entries.slice().reverse().map(entry => `
+          <div style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: start;">
+            <div style="flex: 1;">
+              <div style="font-weight: 600; margin-bottom: 4px;">${entry.date}</div>
+              <div class="note-meta" style="margin-bottom: 4px;">${entry.periodLength} day period · ${entry.flow || 'normal'}</div>
+              ${entry.symptoms && entry.symptoms.length > 0 ? `<div style="font-size: 0.9rem; margin-top: 6px;">${entry.symptoms.join(' ')}</div>` : ''}
+              ${entry.note ? `<div class="note-meta" style="margin-top: 6px; font-style: italic;">"${entry.note}"</div>` : ''}
+            </div>
+            <button class="delete-period-btn" data-id="${entry.id}" style="background: rgba(231, 76, 60, 0.2); border: 1px solid rgba(231, 76, 60, 0.4); color: #e74c3c; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">Delete</button>
           </div>
-          <button class="btn btn-sec btn-small" data-id="${entry.id}">Delete</button>
-        </div>
-      `).join('') || '<div class="muted" style="padding:24px;text-align:center">No period entries yet.</div>';
-      log.querySelectorAll('button[data-id]').forEach(btn => {
-        btn.onclick = () => {
-          tracker.entries = tracker.entries.filter(e => e.id !== btn.dataset.id);
-          save();
-          refreshLog();
-        };
-      });
+        `).join('');
+        
+        log.querySelectorAll('.delete-period-btn').forEach(btn => {
+          btn.onclick = () => {
+            if (confirm('Delete this period entry?')) {
+              tracker.entries = tracker.entries.filter(e => e.id !== btn.dataset.id);
+              save();
+              refreshLog();
+            }
+          };
+        });
+      }
     }
 
     setTimeout(() => {
-      const saveBtn = document.getElementById('savePeriodBtn');
-      const addBtn = document.getElementById('addPeriodBtn');
+      const savePeriodBtn = document.getElementById('savePeriodBtn');
+      let selectedFlow = null;
+      let selectedSymptoms = [];
 
-      if (addBtn) addBtn.onclick = () => {
-        document.getElementById('periodDate')?.focus();
-      };
-      if (saveBtn) saveBtn.onclick = () => {
-        const date = document.getElementById('periodDate').value;
-        const length = parseInt(document.getElementById('periodLength').value, 10) || tracker.periodLength;
-        const note = document.getElementById('periodNote').value.trim();
-        if (!date) return;
-        tracker.lastPeriodDate = date;
-        tracker.periodLength = length;
-        tracker.entries.push({ id: Date.now().toString(), date, periodLength: length, note });
-        save();
-        refreshLog();
-        navigate('period');
-      };
+      document.querySelectorAll('.symptom-btn').forEach(btn => {
+        btn.onclick = () => {
+          document.querySelectorAll('.symptom-btn').forEach(b => {
+            b.style.background = 'rgba(255,255,255,0.05)';
+            b.style.borderColor = 'rgba(255,255,255,0.1)';
+          });
+          btn.style.background = 'rgba(212, 175, 55, 0.3)';
+          btn.style.borderColor = 'rgba(212, 175, 55, 0.6)';
+          selectedFlow = btn.dataset.flow;
+        };
+      });
+
+      document.querySelectorAll('.symptom-selector').forEach(btn => {
+        btn.onclick = () => {
+          const symptom = btn.dataset.symptom;
+          if (selectedSymptoms.includes(symptom)) {
+            selectedSymptoms = selectedSymptoms.filter(s => s !== symptom);
+            btn.style.opacity = '0.5';
+          } else {
+            selectedSymptoms.push(symptom);
+            btn.style.opacity = '1';
+          }
+        };
+      });
+
+      if (savePeriodBtn) {
+        savePeriodBtn.onclick = () => {
+          const date = document.getElementById('periodDate').value;
+          const length = parseInt(document.getElementById('periodLength').value, 10) || tracker.periodLength;
+          const note = document.getElementById('periodNote').value.trim();
+          
+          if (!date) {
+            alert('Please select a period start date');
+            return;
+          }
+          
+          tracker.lastPeriodDate = date;
+          tracker.periodLength = length;
+          tracker.entries.push({
+            id: Date.now().toString(),
+            date,
+            periodLength: length,
+            flow: selectedFlow || 'normal',
+            symptoms: selectedSymptoms,
+            note
+          });
+          
+          // Update average cycle length if we have previous entries
+          if (tracker.entries.length > 1) {
+            const sortedDates = tracker.entries
+              .map(e => new Date(e.date).getTime())
+              .sort((a, b) => a - b);
+            let totalDays = 0;
+            for (let i = 1; i < sortedDates.length; i++) {
+              totalDays += (sortedDates[i] - sortedDates[i - 1]) / 86400000;
+            }
+            tracker.averageLength = Math.round(totalDays / (sortedDates.length - 1)) || 28;
+          }
+          
+          save();
+          refreshLog();
+          document.getElementById('periodDate').value = '';
+          document.getElementById('periodLength').value = tracker.periodLength;
+          document.getElementById('periodNote').value = '';
+          selectedFlow = null;
+          selectedSymptoms = [];
+          document.querySelectorAll('.symptom-btn').forEach(b => {
+            b.style.background = 'rgba(255,255,255,0.05)';
+            b.style.borderColor = 'rgba(255,255,255,0.1)';
+          });
+          document.querySelectorAll('.symptom-selector').forEach(b => {
+            b.style.opacity = '0.5';
+          });
+          alert('Period logged! 📊');
+          navigate('period');
+        };
+      }
     }, 50);
 
     refreshLog();
@@ -1758,63 +1966,7 @@ const GAVVY = (() => {
       };
     }, 50);
 
-    const surpriseCard = el('div', 'col-12');
-    const unlockDatetime = state.surprise[user].unlockDate || '2026-06-15';
-    const unlockDate = unlockDatetime.split('T')[0] || '2026-06-15';
-    const unlockTime = unlockDatetime.split('T')[1]?.slice(0, 5) || '20:00';
-    
-    function formatSurprisePreview(date, time) {
-      if (!date) return 'Message locked until date set';
-      const dateObj = new Date(date);
-      const dateStr = dateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      return `Message locked until ${dateStr} · ${time}`;
-    }
-    
-    const previewText = formatSurprisePreview(unlockDate, unlockTime);
-    
-    surpriseCard.appendChild(el('div', 'card', `
-      <div class="label">Surprise Settings for ${other}</div>
-      <div class="muted">Customize the surprise only you can see before sending.</div>
-      <div style="display:grid;gap:12px;margin-top:16px">
-        <div style="padding:12px;background:rgba(212, 175, 55, 0.08);border:1px solid rgba(212, 175, 55, 0.2);border-radius:8px;font-size:0.95rem;color:var(--text)">${previewText}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <input type="date" id="surpriseDate" value="${unlockDate}" style="padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text)">
-          <input type="time" id="surpriseTime" value="${unlockTime}" style="padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text)">
-        </div>
-        <textarea id="surpriseMessage" placeholder="Unlocked surprise message" style="min-height:100px;padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text)">${state.surprise[user].message}</textarea>
-        <button class="btn btn-small" id="saveSurpriseBtn">Save Surprise</button>
-      </div>
-    `));
-    root.appendChild(surpriseCard);
 
-    setTimeout(() => {
-      const saveSurpriseBtn = document.getElementById('saveSurpriseBtn');
-      const surpriseMessage = document.getElementById('surpriseMessage');
-      const surpriseDate = document.getElementById('surpriseDate');
-      const surpriseTime = document.getElementById('surpriseTime');
-      const previewDiv = surpriseCard.querySelector('div[style*="background:rgba(212"]');
-      
-      const updatePreview = () => {
-        if (previewDiv && surpriseDate && surpriseTime) {
-          const newPreview = formatSurprisePreview(surpriseDate.value, surpriseTime.value);
-          previewDiv.textContent = newPreview;
-        }
-      };
-      
-      if (surpriseDate) surpriseDate.onchange = updatePreview;
-      if (surpriseTime) surpriseTime.onchange = updatePreview;
-      
-      if (saveSurpriseBtn && surpriseMessage && surpriseDate && surpriseTime) {
-        saveSurpriseBtn.onclick = () => {
-          const datetime = surpriseDate.value && surpriseTime.value ? `${surpriseDate.value}T${surpriseTime.value}:00` : state.surprise[user].unlockDate;
-          state.surprise[user].preview = formatSurprisePreview(surpriseDate.value, surpriseTime.value);
-          state.surprise[user].message = surpriseMessage.value.trim() || state.surprise[user].message;
-          state.surprise[user].unlockDate = datetime;
-          save();
-          alert('Surprise saved! 💝');
-        };
-      }
-    }, 50);
 
     // Our Conversations - Answered Questions
     const conversationsCard = el('div', 'col-12');
@@ -1844,8 +1996,7 @@ const GAVVY = (() => {
 
     const app = el('div'); app.appendChild(root);
     setTimeout(() => {
-      const annInput = document.getElementById('anniversary');
-      if (annInput) annInput.onchange = e => { state.couple.anniversary = e.target.value; save(); };
+
     }, 50);
 
     return app;
@@ -1898,7 +2049,6 @@ const GAVVY = (() => {
       <div class="fab-item" data-action="note">📝 Add Note</div>
       <div class="fab-item" data-action="goal">🎯 Add Goal</div>
       <div class="fab-item" data-action="trip">✈️ Add Trip</div>
-      <div class="fab-item" data-action="surprise">🎁 Surprise</div>
     `;
     document.body.appendChild(fabMenu);
 
@@ -1912,7 +2062,6 @@ const GAVVY = (() => {
           navigate('us');
         }
         else if (action === 'trip') navigate('trips');
-        else if (action === 'surprise') showSurprise();
         fabMenu.classList.remove('active');
       };
     });
