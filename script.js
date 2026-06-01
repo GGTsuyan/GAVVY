@@ -34,9 +34,21 @@ const GAVVY = (() => {
   };
 
   const API_BASE = '/api';
+  let currentRoute = 'home';
 
   function save() { localStorage.setItem('gavvy-state', JSON.stringify(state)); }
   function load() { try { const s = localStorage.getItem('gavvy-state'); if (s) state = { ...state, ...JSON.parse(s) }; } catch (e) { } }
+  function closeModalAndRefresh() {
+    const modal = document.getElementById('memoryModal');
+    if (modal && modal.parentElement) {
+      modal.parentElement.classList.remove('active');
+    }
+    setTimeout(() => {
+      if (currentRoute && currentRoute !== 'login') {
+        navigate(currentRoute);
+      }
+    }, 150);
+  }
 
   async function postJson(path, body) {
     const response = await fetch(API_BASE + path, {
@@ -225,15 +237,15 @@ const GAVVY = (() => {
               goal.progress += amount;
               if (goal.progress > goal.target) goal.progress = goal.target;
               save();
-              showGoalDetail(goal);
+              closeModalAndRefresh();
             }
           };
         }
       } else if (goal.type === 'count') {
         const incBtn = document.getElementById('goalIncrementBtn');
         const decBtn = document.getElementById('goalDecrementBtn');
-        if (incBtn) incBtn.onclick = () => { if (goal.progress < goal.target) { goal.progress++; save(); showGoalDetail(goal); } };
-        if (decBtn) decBtn.onclick = () => { if (goal.progress > 0) { goal.progress--; save(); showGoalDetail(goal); } };
+        if (incBtn) incBtn.onclick = () => { if (goal.progress < goal.target) { goal.progress++; save(); closeModalAndRefresh(); } };
+        if (decBtn) decBtn.onclick = () => { if (goal.progress > 0) { goal.progress--; save(); closeModalAndRefresh(); } };
       } else if (goal.type === 'list') {
         const listAddBtn = document.getElementById('goalListAddBtn');
         const listInput = document.getElementById('goalListItem');
@@ -245,7 +257,7 @@ const GAVVY = (() => {
               goal.items.push({ id: Date.now().toString(), name: itemName, completed: false, date: new Date().toISOString() });
               goal.progress = goal.items.filter(i => i.completed).length;
               save();
-              showGoalDetail(goal);
+              closeModalAndRefresh();
             }
           };
         }
@@ -257,7 +269,7 @@ const GAVVY = (() => {
               goal.items[idx].completed = cb.checked;
               goal.progress = goal.items.filter(i => i.completed).length;
               save();
-              showGoalDetail(goal);
+              closeModalAndRefresh();
             }
           };
         });
@@ -329,7 +341,7 @@ const GAVVY = (() => {
           if (!title) return;
           state.events.push({ emoji, date: dateStr, title });
           save();
-          navigate('calendar');
+          closeModalAndRefresh();
         };
       }
       
@@ -1720,8 +1732,8 @@ const GAVVY = (() => {
     addForm.appendChild(el('div', 'card', `
       <div class="label">Plan a Trip</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <input id="tripName" placeholder="Trip name (e.g., Tokyo Escape)" style="flex:1;min-width:150px">
-        <input type="number" id="tripBudget" placeholder="Budget" style="width:120px">
+        <input id="tripName" placeholder="Trip name (e.g., Tokyo Escape)" style="flex:1;min-width:150px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
+        <input type="number" id="tripBudget" placeholder="Budget" style="width:120px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
         <button id="addTripBtn" class="btn">Add</button>
       </div>
     `));
@@ -2015,6 +2027,12 @@ const GAVVY = (() => {
     if (!state.auth.currentUser && route !== 'login') route = 'login';
     if (state.auth.currentUser && route === 'login') route = 'home';
 
+    // Track current route for refreshing
+    currentRoute = route;
+
+    // Save current route to localStorage
+    localStorage.setItem('gavvy-lastRoute', route);
+
     if (route === 'home') app.appendChild(renderHome());
     else if (route === 'memories') app.appendChild(renderMemories());
     else if (route === 'calendar') app.appendChild(renderCalendar());
@@ -2067,7 +2085,16 @@ const GAVVY = (() => {
     });
 
     document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => navigate(b.dataset.route)));
-    if (state.auth.currentUser) navigate('home'); else navigate('login');
+    
+    // Restore last viewed route on page reload
+    let initialRoute = 'home';
+    if (state.auth.currentUser) {
+      const lastRoute = localStorage.getItem('gavvy-lastRoute');
+      if (lastRoute && lastRoute !== 'login') initialRoute = lastRoute;
+    } else {
+      initialRoute = 'login';
+    }
+    navigate(initialRoute);
   }
 
   return { init };
