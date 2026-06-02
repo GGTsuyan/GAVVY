@@ -4,7 +4,8 @@ A beautiful, customizable love website generator that creates romantic websites 
 
 ![Love Website Generator](https://img.shields.io/badge/Love-Website%20Generator-pink?style=for-the-badge&logo=heart)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-2.0.0-blue?style=for-the-badge)
+![Database](https://img.shields.io/badge/Database-Supabase-green?style=for-the-badge)
 
 ## ✨ Features
 
@@ -16,13 +17,26 @@ A beautiful, customizable love website generator that creates romantic websites 
 - 🌟 **Special Effects**: Heart bursts, sparkles, and romantic animations
 - 💝 **Love Notes**: Hidden love messages that appear on click
 - 🎮 **Mini Games**: Fun interactive elements to engage your partner
+- 🗄️ **Cloud Database**: Supabase integration for persistent storage and multi-device sync
+- 👥 **Multi-User Support**: Both partners can access and update shared data
+- 📊 **Rich Features**: Goals tracking, mood check-ins, period tracker, shared lists, and more
 
 ## 🚀 Quick Start
+
+### Basic Setup (No Database)
 
 1. **Download or Clone** this repository
 2. **Open** `config.js` and customize it with your information
 3. **Open** `index.html` in your web browser
 4. **Share** the love with your partner! 💕
+
+### With Supabase Database (Recommended for Couples)
+
+1. **Set up Supabase** - Follow the [Supabase Setup Guide](SUPABASE_SETUP.md)
+2. **Configure** `supabase.config.js` with your Supabase credentials
+3. **Run the SQL schema** in `supabase-schema.sql` on your Supabase project
+4. **Update** `index.html` to include the Supabase scripts
+5. **Sign up/Sign in** and enjoy cloud-synced data across devices!
 
 ## 📝 Customization
 
@@ -90,6 +104,7 @@ const CONFIG = {
 - **CSS3**: Beautiful animations, gradients, and responsive design
 - **JavaScript**: Interactive features and dynamic content
 - **Google Fonts**: Elegant typography (Great Vibes, Cormorant Garamond, etc.)
+- **Supabase**: PostgreSQL database, authentication, and file storage
 
 ### Browser Support
 - ✅ Chrome (recommended)
@@ -139,6 +154,33 @@ Perfect for:
 - Add countdown timers to your next meeting
 - Share virtual kisses and love
 
+## 🗄️ Database & Supabase Integration
+
+Version 2.0 introduces full Supabase integration for persistent data storage:
+
+### Features with Database
+- **👥 User Authentication**: Secure sign up and login
+- **💾 Cloud Storage**: All data synced across devices
+- **👫 Couple Profiles**: Shared data between partners
+- **📸 Memory Gallery**: Store photos and stories in the cloud
+- **📅 Shared Calendar**: Events and anniversaries synced
+- **🎯 Goals Tracking**: Savings goals, challenges, and milestones
+- **😊 Mood Check-ins**: Track and share moods
+- **📝 Shared Lists**: Travel bucket lists, date ideas, movies, restaurants
+- **💌 Love Notes**: Persistent notes between partners
+- **🩸 Period Tracker**: Private health tracking
+- **💬 Daily Questions**: Answer questions and save responses
+- **🎁 Surprise Messages**: Time-locked messages for special occasions
+
+### Quick Database Setup
+1. Create a free Supabase account at [supabase.com](https://supabase.com)
+2. Create a new project
+3. Run the SQL schema from `supabase-schema.sql`
+4. Update `supabase.config.js` with your project credentials
+5. Include the Supabase scripts in your HTML
+
+📖 **Full setup instructions**: See [SUPABASE_SETUP.md](SUPABASE_SETUP.md)
+
 ## 🤝 Contributing
 
 We welcome contributions! Here's how you can help:
@@ -156,6 +198,7 @@ We welcome contributions! Here's how you can help:
 - Performance improvements
 - Mobile optimizations
 - Accessibility improvements
+- New database features
 
 ## 📄 License
 
