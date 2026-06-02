@@ -18,7 +18,7 @@
 // Use configuration from supabase.config.js if available, otherwise use defaults
 const config = window.SUPABASE_CONFIG || {
     url: 'https://tdlsgxoiaxauswarjzjg.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkbHNneG9pYXhhdXN3YXJqempnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0MDczNzYsImV4cCI6MjA5NTk4MzM3Nn0.FsrzIeojP3P1SwUuIglm9dmt8hJI8OF_MS8m9nv5v2Eyour-anon-key-here'
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkbHNneG9pYXhhdXN3YXJqempnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0MDczNzYsImV4cCI6MjA5NTk4MzM3Nn0.FsrzIeojP3P1SwUuIglm9dmt8hJI8OF_MS8m9nv5v2E'
 };
 
 // ============================================
@@ -762,12 +762,22 @@ const DatabaseService = {
      * Get answers for a couple
      */
     async getAnswers(coupleId) {
+        // First get question IDs
+        const { data: questions, error: qError } = await supabaseClient
+            .from('questions')
+            .select('id')
+            .eq('couple_id', coupleId);
+        
+        if (qError) throw qError;
+        
+        if (!questions || questions.length === 0) return [];
+        
+        const questionIds = questions.map(q => q.id);
+        
         const { data, error } = await supabaseClient
             .from('answers')
             .select('*, questions(question_text)')
-            .in('question_id', 
-                supabaseClient.from('questions').select('id').eq('couple_id', coupleId)
-            )
+            .in('question_id', questionIds)
             .order('created_at', { ascending: false });
         
         if (error) throw error;
@@ -1045,7 +1055,9 @@ class StateManager {
      * Save state to Supabase
      */
     async save() {
-        if (!this.coupleId || !this.userId) return;
+        if (!this.coupleId || !this.userId) {
+            throw new Error('No active Supabase session. User not logged in via Supabase Auth.');
+        }
         
         try {
             // Update couple

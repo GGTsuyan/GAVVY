@@ -7,12 +7,23 @@
 
 const SUPABASE_CONFIG = {
     // Your Supabase project URL
-    // Format: https://your-project-id.supabase.co
-    url: 'https://your-project-id.supabase.co',
+    url: 'https://tdlsgxoiaxauswarjzjg.supabase.co',
     
     // Your Supabase anon/public key
-    // This key is safe to use in client-side code
-    anonKey: 'your-anon-key-here'
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkbHNneG9pYXhhdXN3YXJqempnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0MDczNzYsImV4cCI6MjA5NTk4MzM3Nn0.FsrzIeojP3P1SwUuIglm9dmt8hJI8OF_MS8m9nv5v2E',
+
+    // Pre-defined accounts for Gab and Avi
+    // These auto-login when the Gab/Avi buttons are clicked
+    accounts: {
+        gab: {
+            email: 'gab@example.com',
+            password: 'gab-gavvy-2025'
+        },
+        avi: {
+            email: 'avi@example.com',
+            password: 'avi-gavvy-2025'
+        }
+    }
 };
 
 // Make configuration available globally
