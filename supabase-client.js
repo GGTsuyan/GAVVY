@@ -4,6 +4,9 @@
  * 
  * This file provides a complete database abstraction layer that replaces
  * localStorage and the Python backend with Supabase.
+ * 
+ * IMPORTANT: This file should be loaded AFTER supabase.config.js which defines
+ * the SUPABASE_CONFIG object with your credentials.
  */
 
 // Import Supabase JS client (add to your HTML: <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>)
@@ -12,11 +15,10 @@
 // CONFIGURATION
 // ============================================
 
-const SUPABASE_CONFIG = {
-    // Replace these with your actual Supabase project credentials
-    // Get these from: Supabase Dashboard > Settings > API
-    url: 'https://your-project-id.supabase.co',
-    anonKey: 'your-anon-key-here'
+// Use configuration from supabase.config.js if available, otherwise use defaults
+const config = window.SUPABASE_CONFIG || {
+    url: 'https://tdlsgxoiaxauswarjzjg.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkbHNneG9pYXhhdXN3YXJqempnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0MDczNzYsImV4cCI6MjA5NTk4MzM3Nn0.FsrzIeojP3P1SwUuIglm9dmt8hJI8OF_MS8m9nv5v2Eyour-anon-key-here'
 };
 
 // ============================================
@@ -24,7 +26,7 @@ const SUPABASE_CONFIG = {
 // ============================================
 
 const { createClient } = supabase;
-const supabaseClient = createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+const supabaseClient = createClient(config.url, config.anonKey);
 
 // ============================================
 // DATABASE SERVICE LAYER
