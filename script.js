@@ -8,48 +8,52 @@ const GAVVY = (() => {
 
   // Initialize state - try Supabase first, fall back to localStorage
   async function initState() {
+    state = getDefaultState();
+    load(); // Always load localStorage first (fast, instant)
+    
     // Check if Supabase is configured and available
     const supabaseConfigured = typeof window.SUPABASE_CONFIG !== 'undefined' && 
         window.SUPABASE_CONFIG.url !== 'https://your-project-id.supabase.co' &&
         window.SUPABASE_CONFIG.anonKey !== 'your-anon-key-here';
     
-    console.log('🔍 Checking Supabase configuration...', {
-      configExists: typeof window.SUPABASE_CONFIG !== 'undefined',
-      urlConfigured: supabaseConfigured,
-      databaseServiceExists: typeof window.DatabaseService !== 'undefined',
-      stateManagerExists: typeof window.stateManager !== 'undefined'
-    });
-    
-    if (supabaseConfigured && 
-        typeof window.DatabaseService !== 'undefined' &&
-        typeof window.stateManager !== 'undefined') {
+    if (supabaseConfigured && window.supabase) {
       useSupabase = true;
       try {
-        console.log('🔄 Initializing Supabase...');
-        await window.stateManager.init();
-        state = window.stateManager.state;
-        console.log('✅ Using Supabase for data storage');
-        console.log('📊 State loaded:', {
-          coupleId: window.stateManager.coupleId,
-          userId: window.stateManager.userId,
-          hasCouple: !!window.stateManager.coupleId
-        });
-        return;
+        // Try loading from Supabase with a timeout to prevent infinite loading
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
+        const loadPromise = (async () => {
+          const sb = window.supabase;
+          const coupleR = await sb.from('couples').select('*').eq('id', '00000000-0000-0000-0000-000000000010');
+          if (coupleR.data && coupleR.data[0]) {
+            state.couple.name1 = coupleR.data[0].name1;
+            state.couple.name2 = coupleR.data[0].name2;
+            state.couple.startDate = coupleR.data[0].start_date;
+          }
+          const [eventsR, memoriesR, notesR] = await Promise.all([
+            sb.from('events').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
+            sb.from('memories').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
+            sb.from('notes').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010')
+          ]);
+          if (eventsR.data && eventsR.data.length) state.events = eventsR.data.map(e => ({ emoji: e.emoji, title: e.title, date: e.date }));
+          if (memoriesR.data && memoriesR.data.length) state.memories = memoriesR.data.map(m => ({ emoji: m.emoji, title: m.title, story: m.story, location: m.location, date: m.date, image: m.image_url }));
+          if (notesR.data && notesR.data.length) state.notes = notesR.data.map(n => ({ id: n.id, title: n.title, body: n.content, date: (n.created_at || '').split('T')[0] }));
+          const [tripsR, periodR, listsR, moodsR] = await Promise.all([
+            sb.from('trips').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
+            sb.from('period_entries').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
+            sb.from('lists').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
+            sb.from('mood_settings').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010')
+          ]);
+          if (tripsR.data && tripsR.data.length) state.trips = tripsR.data.map(t => ({ name: t.name, budget: t.budget, spent: t.spent, startDate: t.start_date, endDate: t.end_date, checklist: typeof t.checklist === 'string' ? JSON.parse(t.checklist) : (t.checklist || []), itinerary: typeof t.itinerary === 'string' ? JSON.parse(t.itinerary) : (t.itinerary || []) }));
+          if (periodR.data && periodR.data.length) state.periodTracker.entries = periodR.data.map(p => ({ id: p.id, date: p.date, periodLength: p.period_length, flow: p.flow, symptoms: typeof p.symptoms === 'string' ? JSON.parse(p.symptoms) : (p.symptoms || []), note: p.note }));
+          if (listsR.data && listsR.data.length) listsR.data.forEach(list => { state.lists[list.list_type] = typeof list.items === 'string' ? JSON.parse(list.items) : (list.items || []); });
+          if (moodsR.data && moodsR.data[0]) state.mood.customMoods = typeof moodsR.data[0].custom_moods === 'string' ? JSON.parse(moodsR.data[0].custom_moods) : (moodsR.data[0].custom_moods || state.mood.customMoods);
+          console.log('Cloud data loaded!');
+        })();
+        await Promise.race([loadPromise, timeoutPromise]);
       } catch (e) {
-        console.warn('⚠️ Supabase initialization failed, falling back to localStorage:', e);
-        useSupabase = false;
+        console.warn('Cloud load failed, using local data:', e.message);
       }
-    } else if (!supabaseConfigured) {
-      console.log('⚠️ Supabase not configured. To enable cloud sync:');
-      console.log('   1. Create a Supabase project at supabase.com');
-      console.log('   2. Update supabase.config.js with your credentials');
-      console.log('   3. Run supabase-schema.sql in your Supabase project');
     }
-    
-    // Fallback to localStorage
-    console.log('📱 Using localStorage for data storage (data only saved on this device)');
-    state = getDefaultState();
-    load();
   }
 
   function getDefaultState() {

@@ -6,18 +6,18 @@
   const COUPLE_ID = '00000000-0000-0000-0000-000000000010';
 
   async function loadFromSupabase(state) {
-    if (!window.supabase) return false;
+    if (!window.supabase) { console.log('No Supabase client'); return false; }
     try {
       const sb = window.supabase;
       const [eventsR, memoriesR, notesR, listsR, tripsR, periodR, coupleR, moodsR] = await Promise.all([
-        sb.from('events').select('*').eq('couple_id', COUPLE_ID),
-        sb.from('memories').select('*').eq('couple_id', COUPLE_ID),
-        sb.from('notes').select('*').eq('couple_id', COUPLE_ID),
-        sb.from('lists').select('*').eq('couple_id', COUPLE_ID),
-        sb.from('trips').select('*').eq('couple_id', COUPLE_ID),
-        sb.from('period_entries').select('*').eq('couple_id', COUPLE_ID),
-        sb.from('couples').select('*').eq('id', COUPLE_ID),
-        sb.from('mood_settings').select('*').eq('couple_id', COUPLE_ID)
+        sb.from('events').select('*').eq('couple_id', COUPLE_ID).timeout(5000),
+        sb.from('memories').select('*').eq('couple_id', COUPLE_ID).timeout(5000),
+        sb.from('notes').select('*').eq('couple_id', COUPLE_ID).timeout(5000),
+        sb.from('lists').select('*').eq('couple_id', COUPLE_ID).timeout(5000),
+        sb.from('trips').select('*').eq('couple_id', COUPLE_ID).timeout(5000),
+        sb.from('period_entries').select('*').eq('couple_id', COUPLE_ID).timeout(5000),
+        sb.from('couples').select('*').eq('id', COUPLE_ID).timeout(5000),
+        sb.from('mood_settings').select('*').eq('couple_id', COUPLE_ID).timeout(5000)
       ]);
       if (coupleR.data && coupleR.data[0]) {
         state.couple.name1 = coupleR.data[0].name1;
@@ -119,6 +119,7 @@
   }
 
   // Alternative simpler approach: just patch localStorage
+  // Also patch load to load from Supabase when localStorage is empty
   function initSync() {
     if (typeof window.SUPABASE_CONFIG === 'undefined' || window.SUPABASE_CONFIG.url === 'https://your-project-id.supabase.co') {
       console.log('Supabase not configured, skipping sync');
@@ -126,6 +127,8 @@
     }
     
     window._supabaseReady = true;
+    
+    // Patch localStorage.setItem to also sync to Supabase
     const origSetItem = localStorage.setItem.bind(localStorage);
     localStorage.setItem = function(key, value) {
       origSetItem(key, value);
@@ -136,6 +139,33 @@
         } catch(e) {}
       }
     };
+    
+    // Patch localStorage.getItem to load from Supabase when data is empty
+    const origGetItem = localStorage.getItem.bind(localStorage);
+    localStorage.getItem = function(key) {
+      const val = origGetItem(key);
+      if (key === 'gavvy-state' && window._supabaseReady && window.supabase) {
+        // If localStorage is empty, load from Supabase
+        if (!val) {
+          setTimeout(async () => {
+            try {
+              // Create a temp state object to load into
+              const tempState = { couple: { name1: 'Gab', name2: 'Avi' }, events: [], memories: [], notes: [], trips: [], lists: { dateIdeas: [], travelList: [], movies: [], restaurants: [], giftIdeas: [] }, periodTracker: { entries: [] }, mood: { customMoods: [] }, goals: [], answeredQuestions: [] };
+              const loaded = await loadFromSupabase(tempState);
+              if (loaded) {
+                // Write to localStorage so GAVVY picks it up
+                origSetItem(key, JSON.stringify(tempState));
+                console.log('Loaded data from Supabase cloud!');
+                // Reload the page to pick up the new data
+                location.reload();
+              }
+            } catch(e) { console.error('Supabase load error:', e.message); }
+          }, 100);
+        }
+      }
+      return val;
+    };
+    
     console.log('Supabase sync active!');
   }
 
