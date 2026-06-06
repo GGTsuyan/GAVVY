@@ -3,7 +3,6 @@
 -- Run this SQL in your Supabase SQL Editor
 -- ================================================
 
--- Enable UUID extension if not already enabled
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ================================================
@@ -21,7 +20,7 @@ CREATE TABLE IF NOT EXISTS public.couples (
 );
 
 -- ================================================
--- EVENTS TABLE (Calendar events)
+-- EVENTS TABLE
 -- ================================================
 CREATE TABLE IF NOT EXISTS public.events (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -32,9 +31,7 @@ CREATE TABLE IF NOT EXISTS public.events (
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_events_couple_id ON public.events(couple_id);
-CREATE INDEX IF NOT EXISTS idx_events_date ON public.events(date);
 
 -- ================================================
 -- MEMORIES TABLE
@@ -51,7 +48,6 @@ CREATE TABLE IF NOT EXISTS public.memories (
     date DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_memories_couple_id ON public.memories(couple_id);
 
 -- ================================================
@@ -66,11 +62,10 @@ CREATE TABLE IF NOT EXISTS public.notes (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_notes_couple_id ON public.notes(couple_id);
 
 -- ================================================
--- LISTS TABLE (Date ideas, travel, movies, restaurants, gift ideas)
+-- LISTS TABLE
 -- ================================================
 CREATE TABLE IF NOT EXISTS public.lists (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -79,7 +74,6 @@ CREATE TABLE IF NOT EXISTS public.lists (
     items JSONB DEFAULT '[]',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_lists_couple_id ON public.lists(couple_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lists_couple_type ON public.lists(couple_id, list_type);
 
@@ -98,7 +92,6 @@ CREATE TABLE IF NOT EXISTS public.trips (
     end_date DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_trips_couple_id ON public.trips(couple_id);
 
 -- ================================================
@@ -115,53 +108,49 @@ CREATE TABLE IF NOT EXISTS public.period_entries (
     note TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_period_couple_id ON public.period_entries(couple_id);
 
 -- ================================================
--- MOOD SETTINGS TABLE
+-- MOOD SETTINGS TABLE (with per-person moods)
 -- ================================================
 CREATE TABLE IF NOT EXISTS public.mood_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     couple_id UUID NOT NULL REFERENCES public.couples(id),
     custom_moods JSONB DEFAULT '["😊 Happy", "😌 Relaxed", "😴 Tired", "😔 Sad", "🤩 Excited"]',
     selected_person TEXT,
+    mood_gab TEXT,
+    mood_avi TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_mood_couple_id ON public.mood_settings(couple_id);
 
 -- ================================================
--- QUESTIONS TABLE
+-- QUESTIONS TABLE (shares current question index)
 -- ================================================
 CREATE TABLE IF NOT EXISTS public.questions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     couple_id UUID NOT NULL REFERENCES public.couples(id),
-    question_text TEXT NOT NULL,
+    current_index INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_questions_couple_id ON public.questions(couple_id);
 
 -- ================================================
--- ANSWERS TABLE
+-- ANSWERS TABLE (stores user responses with question text)
 -- ================================================
 CREATE TABLE IF NOT EXISTS public.answers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     couple_id UUID NOT NULL REFERENCES public.couples(id),
-    question_id UUID NOT NULL REFERENCES public.questions(id),
-    user_id UUID NOT NULL,
+    question_id UUID,
+    question_text TEXT,
     answer TEXT NOT NULL,
+    created_by TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_answers_couple_id ON public.answers(couple_id);
-CREATE INDEX IF NOT EXISTS idx_answers_question_id ON public.answers(question_id);
 
 -- ================================================
--- DISABLE ROW LEVEL SECURITY (RLS)
--- This allows the anon key to read/write all data
--- WITHOUT needing individual user authentication
+-- DISABLE ROW LEVEL SECURITY (for anon access)
 -- ================================================
 ALTER TABLE public.couples DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.events DISABLE ROW LEVEL SECURITY;
@@ -174,36 +163,16 @@ ALTER TABLE public.mood_settings DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.questions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.answers DISABLE ROW LEVEL SECURITY;
 
--- ================================================
--- ENABLE RLS (re-enable when ready for production)
--- ================================================
--- ALTER TABLE public.couples ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.lists ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.trips ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.period_entries ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.mood_settings ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.answers ENABLE ROW LEVEL SECURITY;
-
--- ================================================
--- GRANT PERMISSIONS (for anon role)
--- ================================================
+-- Grant permissions to anon role
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon;
 
--- ================================================
--- CREATE DEFAULT COUPLE
--- ================================================
+-- Insert default couple
 INSERT INTO public.couples (id, name1, name2, start_date, user1_id, user2_id)
-VALUES (
-    '00000000-0000-0000-0000-000000000010',
-    'Gab',
-    'Avi',
-    '2025-07-09',
-    '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-0000-000000000002'
-)
+VALUES ('00000000-0000-0000-0000-000000000010', 'Gab', 'Avi', '2025-07-09', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')
 ON CONFLICT (id) DO NOTHING;
+
+-- Insert default question index
+INSERT INTO public.questions (couple_id, current_index)
+VALUES ('00000000-0000-0000-0000-000000000010', 0)
+ON CONFLICT DO NOTHING;
