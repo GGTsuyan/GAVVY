@@ -34,6 +34,7 @@ const GAVVY = (() => {
 
   async function save() {
     localStorage.setItem('gavvy-state', JSON.stringify(state));
+    // Always save to Supabase - saveToSupabase has protection against deleting empty data
     if (window._supabaseReady && window.saveToSupabase) {
       try { await window.saveToSupabase(state); } catch(e) { console.warn('Supabase save failed:', e); }
     }

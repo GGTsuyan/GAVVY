@@ -181,9 +181,9 @@ async function saveToSupabase(state) {
             if (insertErr) console.error('[SUPABASE] Failed to insert couple:', insertErr.message);
         }
 
-        // Sync events
-        await sb.from('events').delete().eq('couple_id', COUPLE_ID);
-        if (state.events.length > 0) {
+        // Sync events - only if we have data (prevents deleting cloud data with empty state)
+        if (state.events && state.events.length > 0) {
+            await sb.from('events').delete().eq('couple_id', COUPLE_ID);
             const { error: eventsErr } = await sb.from('events').insert(
                 state.events.map(e => ({
                     couple_id: COUPLE_ID,
@@ -192,16 +192,13 @@ async function saveToSupabase(state) {
                     date: e.date
                 }))
             );
-            if (eventsErr) {
-                console.error('[SUPABASE] Events insert error:', eventsErr.message);
-            } else {
-                console.log('[SUPABASE] Saved', state.events.length, 'events successfully');
-            }
+            if (eventsErr) console.error('[SUPABASE] Events insert error:', eventsErr.message);
+            else console.log('[SUPABASE] Saved', state.events.length, 'events successfully');
         }
 
-        // Sync memories
-        await sb.from('memories').delete().eq('couple_id', COUPLE_ID);
-        if (state.memories.length > 0) {
+        // Sync memories - only if we have data
+        if (state.memories && state.memories.length > 0) {
+            await sb.from('memories').delete().eq('couple_id', COUPLE_ID);
             await sb.from('memories').insert(
                 state.memories.map(m => ({
                     couple_id: COUPLE_ID,
@@ -216,9 +213,9 @@ async function saveToSupabase(state) {
             );
         }
 
-        // Sync notes
-        await sb.from('notes').delete().eq('couple_id', COUPLE_ID);
-        if (state.notes.length > 0) {
+        // Sync notes - only if we have data
+        if (state.notes && state.notes.length > 0) {
+            await sb.from('notes').delete().eq('couple_id', COUPLE_ID);
             await sb.from('notes').insert(
                 state.notes.map(n => ({
                     id: n.id,
@@ -231,10 +228,10 @@ async function saveToSupabase(state) {
             );
         }
 
-        // Sync lists
+        // Sync lists - only if we have items
         for (const [listType, items] of Object.entries(state.lists)) {
-            await sb.from('lists').delete().eq('couple_id', COUPLE_ID).eq('list_type', listType);
-            if (items.length > 0) {
+            if (items && items.length > 0) {
+                await sb.from('lists').delete().eq('couple_id', COUPLE_ID).eq('list_type', listType);
                 await sb.from('lists').insert({
                     couple_id: COUPLE_ID,
                     list_type: listType,
@@ -243,9 +240,9 @@ async function saveToSupabase(state) {
             }
         }
 
-        // Sync trips
-        await sb.from('trips').delete().eq('couple_id', COUPLE_ID);
-        if (state.trips.length > 0) {
+        // Sync trips - only if we have data
+        if (state.trips && state.trips.length > 0) {
+            await sb.from('trips').delete().eq('couple_id', COUPLE_ID);
             await sb.from('trips').insert(
                 state.trips.map(t => ({
                     couple_id: COUPLE_ID,
@@ -260,9 +257,9 @@ async function saveToSupabase(state) {
             );
         }
 
-        // Sync period entries
-        await sb.from('period_entries').delete().eq('couple_id', COUPLE_ID);
-        if (state.periodTracker.entries.length > 0) {
+        // Sync period entries - only if we have data
+        if (state.periodTracker.entries && state.periodTracker.entries.length > 0) {
+            await sb.from('period_entries').delete().eq('couple_id', COUPLE_ID);
             await sb.from('period_entries').insert(
                 state.periodTracker.entries.map(e => ({
                     couple_id: COUPLE_ID,
@@ -276,13 +273,15 @@ async function saveToSupabase(state) {
             );
         }
 
-        // Sync mood settings
-        await sb.from('mood_settings').delete().eq('couple_id', COUPLE_ID);
-        await sb.from('mood_settings').insert({
-            couple_id: COUPLE_ID,
-            custom_moods: JSON.stringify(state.mood.customMoods || ['😊 Happy', '😌 Relaxed', '😴 Tired', '😔 Sad', '🤩 Excited']),
-            selected_person: state.mood.selectedPerson || state.couple.name1
-        });
+        // Always sync mood settings (safe to overwrite)
+        if (state.mood && state.mood.customMoods) {
+            await sb.from('mood_settings').delete().eq('couple_id', COUPLE_ID);
+            await sb.from('mood_settings').insert({
+                couple_id: COUPLE_ID,
+                custom_moods: JSON.stringify(state.mood.customMoods),
+                selected_person: state.mood.selectedPerson || state.couple.name1
+            });
+        }
 
         console.log('[SUPABASE] FULL SAVE COMPLETE');
         return true;
