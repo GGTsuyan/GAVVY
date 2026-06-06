@@ -7,27 +7,46 @@ const COUPLE_ID = '00000000-0000-0000-0000-000000000010';
 const GAB_ID = '00000000-0000-0000-0000-000000000001';
 const AVI_ID = '00000000-0000-0000-0000-000000000002';
 
+console.log('[SUPABASE] Client loading...');
+
 // Use config from supabase.config.js or fallback
 const config = window.SUPABASE_CONFIG || {
     url: 'https://tdlsgxoiaxauswarjzjg.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkbHNneG9pYXhhdXN3YXJqempnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0MDczNzYsImV4cCI6MjA5NTk4MzM3Nn0.FsrzIeojP3P1SwUuIglm9dmt8hJI8OF_MS8m9nv5v2E'
 };
 
+console.log('[SUPABASE] Config URL:', config.url.substring(0, 20) + '...');
+
+// Check if Supabase JS client loaded
+if (typeof supabase === 'undefined') {
+    console.error('[SUPABASE] Supabase JS library not loaded! Check CDN script in HTML.');
+} else {
+    console.log('[SUPABASE] Supabase JS library found!');
+}
+
 const { createClient } = supabase;
-const supabaseClient = createClient(config.url, config.anonKey);
+const supabaseClient = createClient(config.url, config.anonKey, { debug: false });
 window.supabase = supabaseClient;
 
 // Check if Supabase is actually configured (URL not default)
 const supabaseConfigured = config.url !== 'https://your-project-id.supabase.co' &&
     config.anonKey !== 'your-anon-key-here';
 
+console.log('[SUPABASE] Configured:', supabaseConfigured);
+console.log('[SUPABASE] Couple ID:', COUPLE_ID);
+
 /**
  * Load all data from Supabase into a state object
  */
 async function loadFromSupabase(state) {
-    if (!supabaseConfigured) return false;
+    console.log('[SUPABASE] Loading data from cloud...');
+    if (!supabaseConfigured) {
+        console.warn('[SUPABASE] Not configured, skipping load');
+        return false;
+    }
     try {
         const sb = supabaseClient;
+        console.log('[SUPABASE] Fetching all tables...');
         const [coupleR, eventsR, memoriesR, notesR, listsR, tripsR, periodR, moodsR] = await Promise.all([
             sb.from('couples').select('*').eq('id', COUPLE_ID).maybeSingle(),
             sb.from('events').select('*').eq('couple_id', COUPLE_ID),
@@ -38,6 +57,16 @@ async function loadFromSupabase(state) {
             sb.from('period_entries').select('*').eq('couple_id', COUPLE_ID),
             sb.from('mood_settings').select('*').eq('couple_id', COUPLE_ID)
         ]);
+
+        console.log('[SUPABASE] Load results:', { 
+            couple: coupleR.data ? 'found' : 'not found', 
+            events: eventsR.data?.length || 0, 
+            memories: memoriesR.data?.length || 0, 
+            notes: notesR.data?.length || 0,
+            trips: tripsR.data?.length || 0,
+            period: periodR.data?.length || 0,
+            lists: listsR.data?.length || 0
+        });
 
         if (coupleR.data) {
             state.couple.name1 = coupleR.data.name1;
@@ -95,7 +124,6 @@ async function loadFromSupabase(state) {
                 symptoms: typeof p.symptoms === 'string' ? JSON.parse(p.symptoms) : (p.symptoms || []),
                 note: p.note
             }));
-            // Sort by date descending for latest period
             const sorted = [...state.periodTracker.entries].sort((a, b) => new Date(b.date) - new Date(a.date));
             state.periodTracker.lastPeriodDate = sorted[0].date;
             state.periodTracker.periodLength = sorted[0].periodLength;
@@ -113,9 +141,10 @@ async function loadFromSupabase(state) {
                 : (moodsR.data[0].custom_moods || state.mood.customMoods);
         }
 
+        console.log('[SUPABASE] Load complete!');
         return true;
     } catch (e) {
-        console.warn('Supabase load error:', e.message);
+        console.error('[SUPABASE] Load error:', e.message);
         return false;
     }
 }
@@ -124,10 +153,15 @@ async function loadFromSupabase(state) {
  * Save all data from a state object to Supabase
  */
 async function saveToSupabase(state) {
-    if (!supabaseConfigured) return false;
+    if (!supabaseConfigured) {
+        console.warn('[SUPABASE] Not configured, skipping save');
+        return false;
+    }
     const sb = supabaseClient;
     try {
-        // Upsert couple
+        console.log('[SUPABASE] Saving data... Current events count:', state.events.length);
+        
+        // Upsert couple - FIRST ensure the row exists
         const { data: existingCouple } = await sb.from('couples').select('id').eq('id', COUPLE_ID).maybeSingle();
         if (existingCouple) {
             await sb.from('couples').update({
@@ -136,7 +170,7 @@ async function saveToSupabase(state) {
                 start_date: state.couple.startDate
             }).eq('id', COUPLE_ID);
         } else {
-            await sb.from('couples').insert({
+            const { error: insertErr } = await sb.from('couples').insert({
                 id: COUPLE_ID,
                 user1_id: GAB_ID,
                 user2_id: AVI_ID,
@@ -144,12 +178,13 @@ async function saveToSupabase(state) {
                 name2: state.couple.name2,
                 start_date: state.couple.startDate
             });
+            if (insertErr) console.error('[SUPABASE] Failed to insert couple:', insertErr.message);
         }
 
-        // Sync events (delete all, re-insert)
+        // Sync events
         await sb.from('events').delete().eq('couple_id', COUPLE_ID);
         if (state.events.length > 0) {
-            await sb.from('events').insert(
+            const { error: eventsErr } = await sb.from('events').insert(
                 state.events.map(e => ({
                     couple_id: COUPLE_ID,
                     emoji: e.emoji || '🍽️',
@@ -157,6 +192,11 @@ async function saveToSupabase(state) {
                     date: e.date
                 }))
             );
+            if (eventsErr) {
+                console.error('[SUPABASE] Events insert error:', eventsErr.message);
+            } else {
+                console.log('[SUPABASE] Saved', state.events.length, 'events successfully');
+            }
         }
 
         // Sync memories
@@ -244,9 +284,10 @@ async function saveToSupabase(state) {
             selected_person: state.mood.selectedPerson || state.couple.name1
         });
 
+        console.log('[SUPABASE] FULL SAVE COMPLETE');
         return true;
     } catch (e) {
-        console.error('Supabase save error:', e.message);
+        console.error('[SUPABASE] Save error:', e.message, e.stack);
         return false;
     }
 }
@@ -257,14 +298,23 @@ window.loadFromSupabase = loadFromSupabase;
 window.saveToSupabase = saveToSupabase;
 window.COUPLE_ID = COUPLE_ID;
 
-console.log('Supabase client loaded. Configured:', supabaseConfigured);
-</write_to_file>
-<task_progress>
-- [x] Scan all project files
-- [ ] Rewrite supabase-client.js with auto-init and full data sync
-- [ ] Fix script.js to use Supabase as primary storage
-- [ ] Clean up supabase-sync.js
-- [ ] Update index.html if needed
-- [ ] Test the implementation
-</task_progress>
-</write_to_file>
+// Auto-initialize: check if existing data exists in Supabase
+if (supabaseConfigured) {
+    supabaseClient.from('couples').select('count').eq('id', COUPLE_ID).then(r => {
+        console.log('[SUPABASE] Couple row exists:', r.count > 0);
+        if (r.count === 0) {
+            // Insert the default couple row
+            supabaseClient.from('couples').insert({
+                id: COUPLE_ID,
+                user1_id: GAB_ID,
+                user2_id: AVI_ID,
+                name1: 'Gab',
+                name2: 'Avi',
+                start_date: '2025-07-09'
+            }).then(() => console.log('[SUPABASE] Default couple row created'))
+            .catch(e => console.error('[SUPABASE] Failed to create couple row:', e.message));
+        }
+    }).catch(e => console.warn('[SUPABASE] Initial check failed:', e.message));
+}
+
+console.log('[SUPABASE] Client fully loaded. Ready:', supabaseConfigured);

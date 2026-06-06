@@ -54,13 +54,17 @@ const GAVVY = (() => {
               if (!existingIds.includes(g.id)) state.goals.push(g);
             });
           } else if (key === 'periodTracker') {
-            // Deep merge period tracker
             if (parsed.periodTracker) {
-              state.periodTracker.lastPeriodDate = parsed.periodTracker.lastPeriodDate || state.periodTracker.lastPeriodDate;
-              state.periodTracker.averageLength = parsed.periodTracker.averageLength || state.periodTracker.averageLength;
-              state.periodTracker.periodLength = parsed.periodTracker.periodLength || state.periodTracker.periodLength;
-              if (parsed.periodTracker.entries && parsed.periodTracker.entries.length) {
+              // ONLY use saved period tracker data if it has entries (meaning user logged something)
+              if (parsed.periodTracker.entries && parsed.periodTracker.entries.length > 0) {
+                state.periodTracker = { ...state.periodTracker, ...parsed.periodTracker };
+                // Ensure entries come through properly
                 state.periodTracker.entries = parsed.periodTracker.entries;
+              } else if (parsed.periodTracker.lastPeriodDate) {
+                // Fallback: just use the date if no entries
+                state.periodTracker.lastPeriodDate = parsed.periodTracker.lastPeriodDate;
+                state.periodTracker.averageLength = parsed.periodTracker.averageLength || 36;
+                state.periodTracker.periodLength = parsed.periodTracker.periodLength || 6;
               }
             }
           } else {
