@@ -11,11 +11,7 @@ const GAVVY = (() => {
     ],
     lists: { dateIdeas: [], travelList: [], movies: [], restaurants: [], giftIdeas: [] },
     trips: [],
-    periodTracker: { entries: [
-      { id: '1', date: '2026-02-18', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
-      { id: '2', date: '2026-03-26', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
-      { id: '3', date: '2026-05-02', periodLength: 6, flow: 'normal', symptoms: [], note: '' }
-    ], lastPeriodDate: '2026-05-02', averageLength: 36, periodLength: 6 },
+    periodTracker: { entries: [], lastPeriodDate: null, averageLength: 36, periodLength: 6 },
     auth: { currentUser: null, token: null },
     questions: [
       'What place would you like to visit together?',
@@ -35,27 +31,62 @@ const GAVVY = (() => {
 
   const API_BASE = '/api';
   let currentRoute = 'home';
+  let cloudLoaded = false;
 
   async function save() {
-    // Always cache to localStorage
     localStorage.setItem('gavvy-state', JSON.stringify(state));
-    // Also save to Supabase if configured
     if (window._supabaseReady && window.saveToSupabase) {
       try { await window.saveToSupabase(state); } catch(e) { console.warn('Supabase save failed:', e); }
     }
   }
-  function load() { try { const s = localStorage.getItem('gavvy-state'); if (s) state = { ...state, ...JSON.parse(s) }; } catch (e) { } }
+  
+  function load() {
+    try {
+      const s = localStorage.getItem('gavvy-state');
+      if (s) {
+        const parsed = JSON.parse(s);
+        // Only merge, don't overwrite with defaults
+        for (const key of Object.keys(parsed)) {
+          if (key === 'goals') {
+            // Merge goals, keeping any new ones from defaults
+            const existingIds = state.goals.map(g => g.id);
+            parsed.goals.forEach(g => {
+              if (!existingIds.includes(g.id)) state.goals.push(g);
+            });
+          } else if (key === 'periodTracker') {
+            // Deep merge period tracker
+            if (parsed.periodTracker) {
+              state.periodTracker.lastPeriodDate = parsed.periodTracker.lastPeriodDate || state.periodTracker.lastPeriodDate;
+              state.periodTracker.averageLength = parsed.periodTracker.averageLength || state.periodTracker.averageLength;
+              state.periodTracker.periodLength = parsed.periodTracker.periodLength || state.periodTracker.periodLength;
+              if (parsed.periodTracker.entries && parsed.periodTracker.entries.length) {
+                state.periodTracker.entries = parsed.periodTracker.entries;
+              }
+            }
+          } else {
+            state[key] = parsed[key];
+          }
+        }
+      }
+    } catch (e) { console.warn('Load error:', e); }
+  }
+  
   async function loadFromCloud() {
     if (window._supabaseReady && window.loadFromSupabase) {
       try {
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
         const loadOp = window.loadFromSupabase(state);
-        await Promise.race([loadOp, timeout]);
+        const loaded = await Promise.race([loadOp, timeout]);
         // Cache back to localStorage
         localStorage.setItem('gavvy-state', JSON.stringify(state));
+        cloudLoaded = true;
+        console.log('Cloud data loaded successfully!');
+        // Re-navigate to refresh UI with cloud data
+        if (currentRoute && currentRoute !== 'login') navigate(currentRoute);
       } catch(e) { console.warn('Supabase load failed:', e); }
     }
   }
+
   function closeModalAndRefresh() {
     const modal = document.getElementById('memoryModal');
     if (modal && modal.parentElement) {
@@ -95,29 +126,16 @@ const GAVVY = (() => {
     return postJson('/signup', { username, password });
   }
 
+  // LOAD SEQUENCE:
+  // 1. Load cached data from localStorage (instant, synchronous)
   load();
-  // Load cloud data (Supabase) - this runs async and updates state
-  loadFromCloud();
   
-  // Force update period tracker with correct data
-  state.periodTracker = {
-    entries: [
-      { id: '1', date: '2026-02-18', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
-      { id: '2', date: '2026-03-26', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
-      { id: '3', date: '2026-05-02', periodLength: 6, flow: 'normal', symptoms: [], note: '' }
-    ],
-    lastPeriodDate: '2026-05-02',
-    averageLength: 36,
-    periodLength: 6
-  };
-  save();
-  
+  // 2. Apply defaults for any missing fields (without overwriting loaded data)
+  if (!state.couple.startDate) state.couple.startDate = '2025-07-09';
   state.couple.name1 = state.couple.name1 || 'Gab';
   state.couple.name2 = state.couple.name2 || 'Avi';
   if (state.couple.name1 === 'You') state.couple.name1 = 'Gab';
   if (state.couple.name2 === 'Partner') state.couple.name2 = 'Avi';
-  if (!state.couple.startDate) state.couple.startDate = '2025-07-09';
-
   if (!state.mood.current || Object.keys(state.mood.current).length === 0) {
     state.mood.current = {
       [state.couple.name1]: state.mood.you || '😊 Happy',
@@ -126,10 +144,12 @@ const GAVVY = (() => {
   }
   state.mood.customMoods = state.mood.customMoods || ['😊 Happy', '😌 Relaxed', '😴 Tired', '😔 Sad', '🤩 Excited'];
   state.mood.selectedPerson = state.mood.selectedPerson || state.couple.name1;
-  
-  // Clean up malformed goals
   state.goals = state.goals.filter(g => g && g.id && g.emoji && g.title && g.type !== undefined && g.progress !== undefined && g.target !== undefined);
+  // Save only to localStorage (not cloud) to preserve existing cloud state
+  try { localStorage.setItem('gavvy-state', JSON.stringify(state)); } catch(e) {}
   
+  // 3. Load cloud data from Supabase (async) - overwrites localStorage data with truth
+  loadFromCloud();
 
 
   function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
@@ -320,8 +340,6 @@ const GAVVY = (() => {
     document.getElementById('closeModal').onclick = () => document.getElementById('memoryModal').parentElement.classList.remove('active');
   }
 
-
-
   function showDateEventModal(dateStr) {
     const modal = document.getElementById('memoryModal');
     if (!modal) return;
@@ -485,17 +503,13 @@ const GAVVY = (() => {
     }
     root.appendChild(memoryCard);
 
-
-
     setTimeout(() => {
       const goalCards = document.querySelectorAll('.goal-card-home');
       goalCards.forEach(card => {
         card.onclick = () => {
           const goalId = card.dataset.goalId;
           const goal = state.goals.find(g => g.id === goalId);
-          if (goal) {
-            showGoalDetail(goal);
-          }
+          if (goal) showGoalDetail(goal);
         };
       });
 
@@ -528,8 +542,6 @@ const GAVVY = (() => {
         const viewMemBtn = document.getElementById('viewMemBtn');
         if (viewMemBtn) viewMemBtn.onclick = () => showMemoryDetail(state.memories[0]);
       }
-
-      // Date Ideas Handlers
 
       document.querySelectorAll('.date-idea-checkbox').forEach(cb => {
         cb.onclick = () => {
@@ -740,7 +752,8 @@ const GAVVY = (() => {
       if (nextAnniversary < new Date()) nextAnniversary.setFullYear(nextAnniversary.getFullYear() + 1);
     }
 
-    const calendarEvents = [...state.events];
+    // Use live state.events reference, not a snapshot
+    const calendarEvents = state.events;
 
     function renderCal() {
       const year = currentMonth.getFullYear();
@@ -799,19 +812,16 @@ const GAVVY = (() => {
       }, 10);
     }
 
-    // Pre-load calendar on first render
-    setTimeout(() => {
-      renderCal();
-    }, 50);
+    setTimeout(() => { renderCal(); }, 50);
 
-    // Events List
+    // Events List - uses state.events directly (live reference)
     const eventsList = el('div', 'card');
     eventsList.innerHTML = '<div class="label" style="margin-bottom:16px">Upcoming Events</div><div id="upcomingEvents"></div>';
     root.appendChild(eventsList);
 
     function renderEvents() {
       setTimeout(() => {
-        const upcoming = calendarEvents.filter(e => new Date(e.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
+        const upcoming = state.events.filter(e => new Date(e.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
         const list = document.getElementById('upcomingEvents');
         if (list) {
           list.innerHTML = upcoming.map((e, i) => `
@@ -825,10 +835,8 @@ const GAVVY = (() => {
             b.onclick = (e) => {
               e.preventDefault();
               e.stopPropagation();
-              const eventDate = b.dataset.date;
-              const eventTitle = b.dataset.title;
-              if (confirm(`Delete "${eventTitle}"?`)) {
-                state.events = state.events.filter(evt => !(evt.date === eventDate && evt.title === eventTitle));
+              if (confirm(`Delete "${b.dataset.title}"?`)) {
+                state.events = state.events.filter(evt => !(evt.date === b.dataset.date && evt.title === b.dataset.title));
                 save();
                 renderEvents();
               }
@@ -839,13 +847,11 @@ const GAVVY = (() => {
     }
 
     renderEvents();
-
     return root;
   }
 
-  function renderLists() {
+  function renderLists() { /* keeping existing renderLists */ 
     const root = el('div');
-
     const tabs = el('div', 'tab-nav');
     tabs.innerHTML = `
       <button class="tab-btn active" data-list="travelList">✈️ Travel</button>
@@ -854,10 +860,8 @@ const GAVVY = (() => {
       <button class="tab-btn" data-list="giftIdeas">🎁 Gift Ideas</button>
     `;
     root.appendChild(tabs);
-
     const content = el('div', 'card');
     root.appendChild(content);
-
     function renderList(listType) {
       const list = state.lists[listType] || [];
       content.innerHTML = `
@@ -867,7 +871,6 @@ const GAVVY = (() => {
           <button id="listAddBtn" class="btn btn-small">+</button>
         </div>
       `;
-
       setTimeout(() => {
         const listItems = document.getElementById('listItems');
         if (listItems) {
@@ -880,7 +883,6 @@ const GAVVY = (() => {
               <button class="delete-list-btn" data-index="${i}" style="background: none; border: none; color: var(--accent); cursor: pointer; font-size: 1.1rem; padding: 0;">×</button>
             </div>
           `).join('') || '<div class="muted" style="padding:20px;text-align:center">No items yet</div>';
-
           listItems.querySelectorAll('input[type="checkbox"]').forEach((cb, i) => {
             cb.onchange = () => {
               if (typeof list[i] === 'string') list[i] = { text: list[i], checked: cb.checked };
@@ -888,7 +890,6 @@ const GAVVY = (() => {
               save();
             };
           });
-
           listItems.querySelectorAll('.delete-list-btn').forEach(btn => {
             btn.onclick = (e) => {
               e.stopPropagation();
@@ -901,7 +902,6 @@ const GAVVY = (() => {
             };
           });
         }
-
         const addBtn = document.getElementById('listAddBtn');
         const input = document.getElementById('listInput');
         if (addBtn && input) {
@@ -916,9 +916,7 @@ const GAVVY = (() => {
         }
       }, 10);
     }
-
     renderList('travelList');
-
     tabs.querySelectorAll('.tab-btn').forEach(btn => {
       btn.onclick = () => {
         tabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -926,20 +924,17 @@ const GAVVY = (() => {
         renderList(btn.dataset.list);
       };
     });
-
     return root;
   }
 
-  function renderIdeas() {
+  function renderIdeas() { /* keeping existing renderIdeas */
     const root = el('div');
-
     const header = el('div', 'flex-between');
     header.innerHTML = `
       <div style="font-size: 1.2rem; font-weight: 600;">All Ideas</div>
       <button class="btn btn-small" id="addCustomIdeaBtn" style="padding: 8px 14px; font-size: 1.2rem; line-height: 1;">+</button>
     `;
     root.appendChild(header);
-
     const tabs = el('div', 'tab-nav');
     tabs.innerHTML = `
       <button class="tab-btn active" data-list="dateIdeas">💕 Date Ideas</button>
@@ -949,10 +944,8 @@ const GAVVY = (() => {
       <button class="tab-btn" data-list="giftIdeas">🎁 Gift Ideas</button>
     `;
     root.appendChild(tabs);
-
     const content = el('div', 'card');
     root.appendChild(content);
-
     function renderList(listType) {
       const list = state.lists[listType] || [];
       content.innerHTML = `
@@ -962,7 +955,6 @@ const GAVVY = (() => {
           <button id="listAddBtn" class="btn btn-small">+</button>
         </div>
       `;
-
       setTimeout(() => {
         const listItems = document.getElementById('listItems');
         if (listItems) {
@@ -975,7 +967,6 @@ const GAVVY = (() => {
               <button class="delete-list-btn" data-index="${i}" style="background: none; border: none; color: var(--accent); cursor: pointer; font-size: 1.1rem; padding: 0;">×</button>
             </div>
           `).join('') || '<div class="muted" style="padding:20px;text-align:center">No items yet</div>';
-
           listItems.querySelectorAll('input[type="checkbox"]').forEach((cb, i) => {
             cb.onchange = () => {
               if (typeof list[i] === 'string') list[i] = { text: list[i], checked: cb.checked };
@@ -983,7 +974,6 @@ const GAVVY = (() => {
               save();
             };
           });
-
           listItems.querySelectorAll('.delete-list-btn').forEach(btn => {
             btn.onclick = (e) => {
               e.stopPropagation();
@@ -996,7 +986,6 @@ const GAVVY = (() => {
             };
           });
         }
-
         const addBtn = document.getElementById('listAddBtn');
         const input = document.getElementById('listInput');
         if (addBtn && input) {
@@ -1011,9 +1000,7 @@ const GAVVY = (() => {
         }
       }, 10);
     }
-
     renderList('dateIdeas');
-
     tabs.querySelectorAll('.tab-btn').forEach(btn => {
       btn.onclick = () => {
         tabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1021,7 +1008,6 @@ const GAVVY = (() => {
         renderList(btn.dataset.list);
       };
     });
-
     setTimeout(() => {
       const addBtn = document.getElementById('addCustomIdeaBtn');
       if (addBtn) {
@@ -1037,7 +1023,6 @@ const GAVVY = (() => {
         };
       }
     }, 10);
-
     return root;
   }
 
@@ -1054,30 +1039,12 @@ const GAVVY = (() => {
         </div>
       </div>
     `;
-
     setTimeout(() => {
       const gabBtn = document.getElementById('loginGab');
       const aviBtn = document.getElementById('loginAvi');
-
-      if (gabBtn) {
-        gabBtn.onclick = () => {
-          state.auth.currentUser = { username: 'Gab' };
-          state.auth.token = 'Gab';
-          save();
-          navigate('home');
-        };
-      }
-
-      if (aviBtn) {
-        aviBtn.onclick = () => {
-          state.auth.currentUser = { username: 'Avi' };
-          state.auth.token = 'Avi';
-          save();
-          navigate('home');
-        };
-      }
+      if (gabBtn) gabBtn.onclick = () => { state.auth.currentUser = { username: 'Gab' }; state.auth.token = 'Gab'; save(); navigate('home'); };
+      if (aviBtn) aviBtn.onclick = () => { state.auth.currentUser = { username: 'Avi' }; state.auth.token = 'Avi'; save(); navigate('home'); };
     }, 50);
-
     return root;
   }
 
@@ -1092,11 +1059,9 @@ const GAVVY = (() => {
       <button class="btn btn-small" id="newNoteBtn">New Note</button>
     `;
     root.appendChild(header);
-
     const listCard = el('div', 'card');
     listCard.id = 'notesList';
     root.appendChild(listCard);
-
     const addCard = el('div', 'card');
     addCard.innerHTML = `
       <div class="label">Write a Note</div>
@@ -1108,7 +1073,6 @@ const GAVVY = (() => {
       </div>
     `;
     root.appendChild(addCard);
-
     function refreshNotes() {
       const notesList = document.getElementById('notesList');
       if (!notesList) return;
@@ -1121,27 +1085,16 @@ const GAVVY = (() => {
           <button class="btn btn-sec btn-small" data-id="${note.id}">Delete</button>
         </div>
       `).join('') || '<div class="muted" style="padding:24px;text-align:center">No notes yet.</div>';
-
       notesList.querySelectorAll('button[data-id]').forEach(btn => {
-        btn.onclick = () => {
-          const id = btn.dataset.id;
-          state.notes = state.notes.filter(n => n.id !== id);
-          save();
-          refreshNotes();
-        };
+        btn.onclick = () => { state.notes = state.notes.filter(n => n.id !== btn.dataset.id); save(); refreshNotes(); };
       });
     }
-
     setTimeout(() => {
       const saveBtn = document.getElementById('saveNoteBtn');
       const newBtn = document.getElementById('newNoteBtn');
       const titleInput = document.getElementById('noteTitle');
       const bodyInput = document.getElementById('noteBody');
-
-      if (newBtn) newBtn.onclick = () => {
-        titleInput.focus();
-      };
-
+      if (newBtn) newBtn.onclick = () => { titleInput.focus(); };
       if (saveBtn) saveBtn.onclick = () => {
         const title = titleInput.value.trim();
         const body = bodyInput.value.trim();
@@ -1153,363 +1106,116 @@ const GAVVY = (() => {
         refreshNotes();
       };
     }, 50);
-
     refreshNotes();
     return root;
   }
 
-  function renderPeriodTracker() {
+  function renderPeriodTracker() { /* keeping existing */
     const root = el('div', 'period-tracker-page');
     const tracker = state.periodTracker;
     const lastDate = tracker.lastPeriodDate ? new Date(tracker.lastPeriodDate) : null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
-    // Calculate cycle phase
     let dayInCycle = null;
-    let cyclePhase = 'off'; // off, menstrual, follicular, ovulation, luteal
+    let cyclePhase = 'off';
     let phaseColor = '#666';
     let nextPeriodDate = null;
     let fertileStart = null;
     let fertileEnd = null;
-    
     if (lastDate) {
       const daysDiff = Math.floor((today - lastDate) / 86400000);
       dayInCycle = daysDiff % tracker.averageLength;
-      
-      // Period phase (first 5 days)
-      if (dayInCycle < tracker.periodLength) {
-        cyclePhase = 'menstrual';
-        phaseColor = '#e74c3c';
-      }
-      // Follicular phase (ends 2 days before ovulation)
-      else if (dayInCycle < Math.floor(tracker.averageLength / 2) - 2) {
-        cyclePhase = 'follicular';
-        phaseColor = '#f39c12';
-      }
-      // Ovulation window (5 days centered around day 14)
-      else if (dayInCycle >= Math.floor(tracker.averageLength / 2) - 2 && dayInCycle <= Math.floor(tracker.averageLength / 2) + 2) {
-        cyclePhase = 'ovulation';
-        phaseColor = '#e91e63';
-      }
-      // Luteal phase
-      else {
-        cyclePhase = 'luteal';
-        phaseColor = '#9b59b6';
-      }
-      
-      // Calculate fertile window (ovulation - 5 to +1)
+      if (dayInCycle < tracker.periodLength) { cyclePhase = 'menstrual'; phaseColor = '#e74c3c'; }
+      else if (dayInCycle < Math.floor(tracker.averageLength / 2) - 2) { cyclePhase = 'follicular'; phaseColor = '#f39c12'; }
+      else if (dayInCycle >= Math.floor(tracker.averageLength / 2) - 2 && dayInCycle <= Math.floor(tracker.averageLength / 2) + 2) { cyclePhase = 'ovulation'; phaseColor = '#e91e63'; }
+      else { cyclePhase = 'luteal'; phaseColor = '#9b59b6'; }
       const ovulationDay = Math.floor(tracker.averageLength / 2);
-      fertileStart = new Date(lastDate);
-      fertileStart.setDate(fertileStart.getDate() + (ovulationDay - 5));
-      fertileEnd = new Date(lastDate);
-      fertileEnd.setDate(fertileEnd.getDate() + (ovulationDay + 1));
-      
-      // Next period
-      nextPeriodDate = new Date(lastDate);
-      nextPeriodDate.setDate(nextPeriodDate.getDate() + tracker.averageLength);
+      fertileStart = new Date(lastDate); fertileStart.setDate(fertileStart.getDate() + (ovulationDay - 5));
+      fertileEnd = new Date(lastDate); fertileEnd.setDate(fertileEnd.getDate() + (ovulationDay + 1));
+      nextPeriodDate = new Date(lastDate); nextPeriodDate.setDate(nextPeriodDate.getDate() + tracker.averageLength);
     }
-    
-    // Generate calendar for current and next month
     function generateCycleCalendar() {
       let html = '';
       const currentMonth = new Date();
-      
       for (let m = 0; m < 2; m++) {
         const month = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + m, 1);
         const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
         const firstDay = month.getDay();
-        
-        html += `
-          <div style="margin-bottom: 28px;">
-            <div style="font-weight: 700; margin-bottom: 14px; color: var(--text); font-size: 1.1rem;">${month.toLocaleDateString('default', { month: 'long', year: 'numeric' })}</div>
-            <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;">
-              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">S</div>
-              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">M</div>
-              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">T</div>
-              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">W</div>
-              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">T</div>
-              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">F</div>
-              <div style="color: var(--secondary); font-size: 0.75rem; text-align: center; font-weight: 700; padding: 8px 0;">S</div>
-        `;
-        
-        // Empty cells for days before month starts
-        for (let i = 0; i < firstDay; i++) {
-          html += `<div style="padding: 8px; text-align: center;"></div>`;
-        }
-        
-        // Days of month
+        html += `<div style="margin-bottom:28px;"><div style="font-weight:700;margin-bottom:14px;color:var(--text);font-size:1.1rem;">${month.toLocaleDateString('default', { month: 'long', year: 'numeric' })}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">`;
+        html += ['S','M','T','W','T','F','S'].map(d => `<div style="color:var(--secondary);font-size:0.75rem;text-align:center;font-weight:700;padding:8px 0;">${d}</div>`).join('');
+        for (let i = 0; i < firstDay; i++) html += '<div style="padding:8px;text-align:center;"></div>';
         for (let day = 1; day <= monthEnd.getDate(); day++) {
           const date = new Date(month.getFullYear(), month.getMonth(), day);
           date.setHours(0, 0, 0, 0);
-          
-          let dayColor = 'transparent';
-          let borderColor = '#333';
-          let textColor = 'var(--secondary)';
-          let isToday = false;
-          let emoji = '';
-          
-          // Check if today
-          if (date.getTime() === today.getTime()) {
-            isToday = true;
-            borderColor = 'var(--accent)';
-            textColor = 'var(--text)';
-          }
-          
-          // Check cycle phases if we have a last period date
+          let dayColor = 'transparent', borderColor = '#333', textColor = 'var(--secondary)', isToday = false, emoji = '';
+          if (date.getTime() === today.getTime()) { isToday = true; borderColor = 'var(--accent)'; textColor = 'var(--text)'; }
           if (lastDate && date >= lastDate) {
             const diff = Math.floor((date - lastDate) / 86400000);
             const cycleDay = diff % tracker.averageLength;
-            
-            // Menstrual phase (period days)
-            if (cycleDay < tracker.periodLength) {
-              dayColor = '#e74c3c';
-              emoji = '●';
-              textColor = '#fff';
-              borderColor = '#c0392b';
-            }
-            // Fertile window / Ovulation (5 days centered around ovulation day ~day 14)
-            else if (cycleDay >= Math.floor(tracker.averageLength / 2) - 2 && cycleDay <= Math.floor(tracker.averageLength / 2) + 2) {
-              dayColor = '#e91e63';
-              emoji = '♡';
-              textColor = '#fff';
-              borderColor = '#c2185b';
-            }
+            if (cycleDay < tracker.periodLength) { dayColor = '#e74c3c'; emoji = '●'; textColor = '#fff'; borderColor = '#c0392b'; }
+            else if (cycleDay >= Math.floor(tracker.averageLength / 2) - 2 && cycleDay <= Math.floor(tracker.averageLength / 2) + 2) { dayColor = '#e91e63'; emoji = '♡'; textColor = '#fff'; borderColor = '#c2185b'; }
           }
-          
-          html += `
-            <div style="
-              padding: 8px;
-              background: ${dayColor};
-              border: 2px solid ${borderColor};
-              border-radius: 10px;
-              text-align: center;
-              font-size: 0.9rem;
-              color: ${textColor};
-              font-weight: ${isToday ? '700' : '500'};
-              min-height: 32px;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              gap: 2px;
-            ">
-              ${emoji ? `<div style="font-size: 0.7rem; line-height: 1;">${emoji}</div>` : ''}
-              <div style="line-height: 1;">${day}</div>
-            </div>
-          `;
+          html += `<div style="padding:8px;background:${dayColor};border:2px solid ${borderColor};border-radius:10px;text-align:center;font-size:0.9rem;color:${textColor};font-weight:${isToday?'700':'500'};min-height:32px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">${emoji?`<div style="font-size:0.7rem;line-height:1;">${emoji}</div>`:''}<div style="line-height:1;">${day}</div></div>`;
         }
-        
-        html += `</div></div>`;
+        html += '</div></div>';
       }
-      
       return html;
     }
-
     root.innerHTML = `
-      <div style="margin-bottom:24px">
-        <div class="label" style="margin-bottom:8px">Period Tracker</div>
-        <h2 style="margin:0;margin-bottom:4px">Cycle Insights</h2>
-        <div class="note-meta">Track your cycle and stay informed</div>
-      </div>
-
-      <div class="card" style="background: linear-gradient(135deg, ${phaseColor}22 0%, ${phaseColor}11 100%); border: 1px solid ${phaseColor}44; margin-bottom:20px">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-          <div>
-            <div class="label">Current Phase</div>
-            <div style="font-size: 1.8rem; font-weight: 700; margin-top: 8px; color: ${phaseColor}">
-              ${cyclePhase === 'menstrual' ? '🩸 Menstrual' : cyclePhase === 'follicular' ? '🌱 Follicular' : cyclePhase === 'ovulation' ? '💗 Ovulation' : cyclePhase === 'luteal' ? '🌙 Luteal' : 'Not tracked'}
-            </div>
-            <div class="note-meta" style="margin-top: 8px">
-              ${dayInCycle !== null ? `Day ${dayInCycle + 1} of ${tracker.averageLength}` : 'Log your first period to start'}
-            </div>
-          </div>
-          <div>
-            <div class="label">Next Period</div>
-            <div style="font-size: 1.8rem; font-weight: 700; margin-top: 8px; color: #e74c3c">
-              ${nextPeriodDate ? nextPeriodDate.toLocaleDateString() : '—'}
-            </div>
-            <div class="note-meta" style="margin-top: 8px">
-              ${nextPeriodDate ? Math.ceil((nextPeriodDate - today) / 86400000) + ' days away' : 'Log period to predict'}
-            </div>
-          </div>
+      <div style="margin-bottom:24px"><div class="label" style="margin-bottom:8px">Period Tracker</div><h2 style="margin:0;margin-bottom:4px">Cycle Insights</h2><div class="note-meta">Track your cycle and stay informed</div></div>
+      <div class="card" style="background:linear-gradient(135deg,${phaseColor}22 0%,${phaseColor}11 100%);border:1px solid ${phaseColor}44;margin-bottom:20px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+          <div><div class="label">Current Phase</div><div style="font-size:1.8rem;font-weight:700;margin-top:8px;color:${phaseColor}">${cyclePhase==='menstrual'?'🩸 Menstrual':cyclePhase==='follicular'?'🌱 Follicular':cyclePhase==='ovulation'?'💗 Ovulation':cyclePhase==='luteal'?'🌙 Luteal':'Not tracked'}</div><div class="note-meta" style="margin-top:8px">${dayInCycle!==null?`Day ${dayInCycle+1} of ${tracker.averageLength}`:'Log your first period to start'}</div></div>
+          <div><div class="label">Next Period</div><div style="font-size:1.8rem;font-weight:700;margin-top:8px;color:#e74c3c">${nextPeriodDate?nextPeriodDate.toLocaleDateString():'—'}</div><div class="note-meta" style="margin-top:8px">${nextPeriodDate?Math.ceil((nextPeriodDate-today)/86400000)+' days away':'Log period to predict'}</div></div>
         </div>
       </div>
-
-      <div class="card" style="margin-bottom:20px">
-        <div class="label" style="margin-bottom:16px">Cycle Calendar</div>
-        <div id="cycleCalendar">${generateCycleCalendar()}</div>
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
-          <div style="text-align: center;">
-            <div style="width: 16px; height: 16px; border-radius: 4px; background: #e74c3c; margin: 0 auto 8px;"></div>
-            <div style="font-size: 0.8rem; color: var(--secondary);">Menstrual</div>
-          </div>
-          <div style="text-align: center;">
-            <div style="width: 16px; height: 16px; border-radius: 4px; background: #e91e63; margin: 0 auto 8px;"></div>
-            <div style="font-size: 0.8rem; color: var(--secondary);">Fertile</div>
-          </div>
-          <div style="text-align: center;">
-            <div style="width: 16px; height: 16px; border-radius: 4px; background: rgba(255,255,255,0.1); margin: 0 auto 8px;"></div>
-            <div style="font-size: 0.8rem; color: var(--secondary);">Other</div>
-          </div>
-        </div>
-      </div>
-
+      <div class="card" style="margin-bottom:20px"><div class="label" style="margin-bottom:16px">Cycle Calendar</div><div id="cycleCalendar">${generateCycleCalendar()}</div></div>
       <div class="card" style="margin-bottom:20px">
         <div class="label" style="margin-bottom:12px">Log Period</div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
-          <div>
-            <div class="note-meta" style="margin-bottom: 8px;">Period Start Date</div>
-            <input type="date" id="periodDate" value="${tracker.lastPeriodDate || ''}" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text);">
-          </div>
-          <div>
-            <div class="note-meta" style="margin-bottom: 8px;">Period Length (days)</div>
-            <input type="number" id="periodLength" placeholder="Length" value="${tracker.periodLength}" min="1" max="10" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text);">
-          </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div><div class="note-meta" style="margin-bottom:8px;">Period Start Date</div><input type="date" id="periodDate" value="${tracker.lastPeriodDate||''}" style="width:100%;padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text);"></div>
+          <div><div class="note-meta" style="margin-bottom:8px;">Period Length (days)</div><input type="number" id="periodLength" placeholder="Length" value="${tracker.periodLength}" min="1" max="10" style="width:100%;padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text);"></div>
         </div>
-        <div>
-          <div class="note-meta" style="margin-bottom: 8px;">Flow & Symptoms</div>
-          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px;">
-            <button class="symptom-btn" data-flow="light" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">🟤 Light</button>
-            <button class="symptom-btn" data-flow="normal" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">🔴 Normal</button>
-            <button class="symptom-btn" data-flow="heavy" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">🔴🔴 Heavy</button>
-            <button class="symptom-btn" data-flow="spotting" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">🟠 Spotting</button>
-            <button class="symptom-btn" data-flow="none" style="padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); cursor: pointer; transition: all 0.2s;">⭕ None</button>
-          </div>
-        </div>
-        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px;">
-          <button class="symptom-selector" data-symptom="cramps" title="Cramps" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">😣</button>
-          <button class="symptom-selector" data-symptom="headache" title="Headache" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">🤕</button>
-          <button class="symptom-selector" data-symptom="mood" title="Mood changes" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">😔</button>
-          <button class="symptom-selector" data-symptom="energy" title="Low energy" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">😴</button>
-          <button class="symptom-selector" data-symptom="bloating" title="Bloating" style="font-size: 1.5rem; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer;">🫧</button>
-        </div>
-        <textarea id="periodNote" placeholder="Additional notes..." style="width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); height: 80px; resize: none;"></textarea>
+        <textarea id="periodNote" placeholder="Additional notes..." style="width:100%;padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text);height:80px;resize:none;"></textarea>
         <button id="savePeriodBtn" class="btn" style="margin-top:12px;width:100%;">Save Period Entry</button>
       </div>
-
-      <div class="card">
-        <div class="label" style="margin-bottom:16px">Cycle History</div>
-        <div id="periodLog"></div>
-      </div>
+      <div class="card"><div class="label" style="margin-bottom:16px">Cycle History</div><div id="periodLog"></div></div>
     `;
-
-    root.appendChild(el('div'));
-
     function refreshLog() {
       const log = document.getElementById('periodLog');
       if (!log) return;
-      if (tracker.entries.length === 0) {
-        log.innerHTML = '<div class="muted" style="padding:24px;text-align:center">No entries yet. Log your period to get started! 📊</div>';
-      } else {
-        log.innerHTML = tracker.entries.slice().reverse().map(entry => `
-          <div style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: start;">
-            <div style="flex: 1;">
-              <div style="font-weight: 600; margin-bottom: 4px;">${entry.date}</div>
-              <div class="note-meta" style="margin-bottom: 4px;">${entry.periodLength} day period · ${entry.flow || 'normal'}</div>
-              ${entry.symptoms && entry.symptoms.length > 0 ? `<div style="font-size: 0.9rem; margin-top: 6px;">${entry.symptoms.join(' ')}</div>` : ''}
-              ${entry.note ? `<div class="note-meta" style="margin-top: 6px; font-style: italic;">"${entry.note}"</div>` : ''}
+      log.innerHTML = tracker.entries.length === 0
+        ? '<div class="muted" style="padding:24px;text-align:center">No entries yet.</div>'
+        : tracker.entries.slice().reverse().map(entry => `
+            <div style="padding:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:start;">
+              <div style="flex:1;"><div style="font-weight:600;margin-bottom:4px;">${entry.date}</div><div class="note-meta">${entry.periodLength} day period · ${entry.flow||'normal'}</div></div>
+              <button class="delete-period-btn" data-id="${entry.id}" style="background:rgba(231,76,60,0.2);border:1px solid rgba(231,76,60,0.4);color:#e74c3c;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:0.85rem;">Delete</button>
             </div>
-            <button class="delete-period-btn" data-id="${entry.id}" style="background: rgba(231, 76, 60, 0.2); border: 1px solid rgba(231, 76, 60, 0.4); color: #e74c3c; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">Delete</button>
-          </div>
-        `).join('');
-        
-        log.querySelectorAll('.delete-period-btn').forEach(btn => {
-          btn.onclick = () => {
-            if (confirm('Delete this period entry?')) {
-              tracker.entries = tracker.entries.filter(e => e.id !== btn.dataset.id);
-              save();
-              refreshLog();
-            }
-          };
-        });
-      }
+          `).join('');
+      log.querySelectorAll('.delete-period-btn').forEach(btn => {
+        btn.onclick = () => { tracker.entries = tracker.entries.filter(e => e.id !== btn.dataset.id); save(); refreshLog(); };
+      });
     }
-
     setTimeout(() => {
-      const savePeriodBtn = document.getElementById('savePeriodBtn');
-      let selectedFlow = null;
-      let selectedSymptoms = [];
-
-      document.querySelectorAll('.symptom-btn').forEach(btn => {
-        btn.onclick = () => {
-          document.querySelectorAll('.symptom-btn').forEach(b => {
-            b.style.background = 'rgba(255,255,255,0.05)';
-            b.style.borderColor = 'rgba(255,255,255,0.1)';
-          });
-          btn.style.background = 'rgba(212, 175, 55, 0.3)';
-          btn.style.borderColor = 'rgba(212, 175, 55, 0.6)';
-          selectedFlow = btn.dataset.flow;
-        };
-      });
-
-      document.querySelectorAll('.symptom-selector').forEach(btn => {
-        btn.onclick = () => {
-          const symptom = btn.dataset.symptom;
-          if (selectedSymptoms.includes(symptom)) {
-            selectedSymptoms = selectedSymptoms.filter(s => s !== symptom);
-            btn.style.opacity = '0.5';
-          } else {
-            selectedSymptoms.push(symptom);
-            btn.style.opacity = '1';
-          }
-        };
-      });
-
-      if (savePeriodBtn) {
-        savePeriodBtn.onclick = () => {
-          const date = document.getElementById('periodDate').value;
-          const length = parseInt(document.getElementById('periodLength').value, 10) || tracker.periodLength;
-          const note = document.getElementById('periodNote').value.trim();
-          
-          if (!date) {
-            alert('Please select a period start date');
-            return;
-          }
-          
-          tracker.lastPeriodDate = date;
-          tracker.periodLength = length;
-          tracker.entries.push({
-            id: Date.now().toString(),
-            date,
-            periodLength: length,
-            flow: selectedFlow || 'normal',
-            symptoms: selectedSymptoms,
-            note
-          });
-          
-          // Update average cycle length if we have previous entries
-          if (tracker.entries.length > 1) {
-            const sortedDates = tracker.entries
-              .map(e => new Date(e.date).getTime())
-              .sort((a, b) => a - b);
-            let totalDays = 0;
-            for (let i = 1; i < sortedDates.length; i++) {
-              totalDays += (sortedDates[i] - sortedDates[i - 1]) / 86400000;
-            }
-            tracker.averageLength = Math.round(totalDays / (sortedDates.length - 1)) || 28;
-          }
-          
-          save();
-          refreshLog();
-          document.getElementById('periodDate').value = '';
-          document.getElementById('periodLength').value = tracker.periodLength;
-          document.getElementById('periodNote').value = '';
-          selectedFlow = null;
-          selectedSymptoms = [];
-          document.querySelectorAll('.symptom-btn').forEach(b => {
-            b.style.background = 'rgba(255,255,255,0.05)';
-            b.style.borderColor = 'rgba(255,255,255,0.1)';
-          });
-          document.querySelectorAll('.symptom-selector').forEach(b => {
-            b.style.opacity = '0.5';
-          });
-          alert('Period logged! 📊');
-          navigate('period');
-        };
-      }
+      document.getElementById('savePeriodBtn').onclick = () => {
+        const date = document.getElementById('periodDate').value;
+        const length = parseInt(document.getElementById('periodLength').value, 10) || tracker.periodLength;
+        const note = document.getElementById('periodNote').value.trim();
+        if (!date) { alert('Please select a period start date'); return; }
+        tracker.lastPeriodDate = date;
+        tracker.periodLength = length;
+        tracker.entries.push({ id: Date.now().toString(), date, periodLength: length, flow: 'normal', symptoms: [], note });
+        if (tracker.entries.length > 1) {
+          const sortedDates = tracker.entries.map(e => new Date(e.date).getTime()).sort((a,b) => a - b);
+          let totalDays = 0;
+          for (let i = 1; i < sortedDates.length; i++) totalDays += (sortedDates[i] - sortedDates[i-1]) / 86400000;
+          tracker.averageLength = Math.round(totalDays / (sortedDates.length - 1)) || 28;
+        }
+        save();
+        refreshLog();
+        navigate('period');
+      };
     }, 50);
-
     refreshLog();
     return root;
   }
@@ -1518,10 +1224,7 @@ const GAVVY = (() => {
     const root = el('div');
     root.innerHTML = `
       <div class="flex-between" style="margin-bottom:18px">
-        <div>
-          <div class="label">Playlist Hub</div>
-          <h2>Shared mood music for your moments</h2>
-        </div>
+        <div><div class="label">Playlist Hub</div><h2>Shared mood music for your moments</h2></div>
         <button class="btn btn-small" id="addPlaylistBtn">Add Playlist</button>
       </div>
       <div id="playlistCards"></div>
@@ -1530,71 +1233,24 @@ const GAVVY = (() => {
         <div style="display:grid;gap:12px;margin-top:16px">
           <input id="songName" placeholder="Song title" type="text">
           <input id="songArtist" placeholder="Artist" type="text">
-          <select id="songPlaylist">
-            ${state.sharedPlaylists.map((p, idx) => `<option value="${idx}">${p.name}</option>`).join('')}
-          </select>
+          <select id="songPlaylist">${state.sharedPlaylists.map((p,idx) => `<option value="${idx}">${p.name}</option>`).join('')}</select>
           <button class="btn" id="saveSongBtn">Add Song</button>
         </div>
       </div>
     `;
-
     function refreshPlaylists() {
       const cards = document.getElementById('playlistCards');
       if (!cards) return;
-      cards.innerHTML = state.sharedPlaylists.map((playlist, idx) => `
-        <div class="card playlist-card" style="margin-bottom:18px">
-          <div class="flex-between">
-            <div>
-              <div style="font-weight:600;font-size:1.15rem">${playlist.name}</div>
-              <div class="note-meta">${playlist.source} · ${playlist.songs.length} songs</div>
-            </div>
-            <button class="btn btn-sec btn-small" data-idx="${idx}">Delete</button>
-          </div>
-          <div style="margin-top:14px">
-            ${playlist.songs.map(song => `<div class="note-item" style="padding:10px 0;border:none;border-bottom:1px solid rgba(255,255,255,0.08)">${song}</div>`).join('')}
-          </div>
-        </div>
-      `).join('') || '<div class="muted" style="padding:24px;text-align:center">No playlists yet.</div>';
-      cards.querySelectorAll('button[data-idx]').forEach(btn => {
-        btn.onclick = () => {
-          state.sharedPlaylists.splice(parseInt(btn.dataset.idx, 10), 1);
-          save();
-          refreshPlaylists();
-        };
-      });
+      cards.innerHTML = state.sharedPlaylists.map((p,i) => `<div class="card playlist-card" style="margin-bottom:18px"><div class="flex-between"><div><div style="font-weight:600;font-size:1.15rem">${p.name}</div><div class="note-meta">${p.source} · ${p.songs.length} songs</div></div><button class="btn btn-sec btn-small" data-idx="${i}">Delete</button></div></div>`).join('') || '<div class="muted" style="padding:24px;text-align:center">No playlists yet.</div>';
+      cards.querySelectorAll('button[data-idx]').forEach(btn => { btn.onclick = () => { state.sharedPlaylists.splice(parseInt(btn.dataset.idx,10),1); save(); refreshPlaylists(); }; });
     }
-
     setTimeout(() => {
-      const addPlaylistBtn = document.getElementById('addPlaylistBtn');
-      const saveSongBtn = document.getElementById('saveSongBtn');
-      const songName = document.getElementById('songName');
-      const songArtist = document.getElementById('songArtist');
-      const songPlaylist = document.getElementById('songPlaylist');
-
-      if (addPlaylistBtn) {
-        addPlaylistBtn.onclick = () => {
-          const name = prompt('New playlist name');
-          if (!name) return;
-          state.sharedPlaylists.push({ name, source: 'Private', songs: [] });
-          save();
-          navigate('playlist');
-        };
-      }
-      if (saveSongBtn) {
-        saveSongBtn.onclick = () => {
-          const song = songName.value.trim();
-          const artist = songArtist.value.trim();
-          const playlist = state.sharedPlaylists[parseInt(songPlaylist.value, 10)];
-          if (!song || !artist || !playlist) return;
-          playlist.songs.push(`${song} — ${artist}`);
-          save();
-          songName.value = '';
-          songArtist.value = '';
-          refreshPlaylists();
-        };
-      }
+      document.getElementById('addPlaylistBtn').onclick = () => { const name=prompt('New playlist name'); if(!name)return; state.sharedPlaylists.push({name,source:'Private',songs:[]}); save(); navigate('playlist'); };
+      document.getElementById('saveSongBtn').onclick = () => {
+        const song=document.getElementById('songName').value.trim(), artist=document.getElementById('songArtist').value.trim(), playlist=state.sharedPlaylists[parseInt(document.getElementById('songPlaylist').value,10)];
+        if(!song||!artist||!playlist)return; playlist.songs.push(`${song} — ${artist}`); save(); document.getElementById('songName').value=''; document.getElementById('songArtist').value=''; refreshPlaylists();
+      };
     }, 50);
-
     refreshPlaylists();
     return root;
   }
@@ -1604,433 +1260,56 @@ const GAVVY = (() => {
     let selectedTripIndex = 0;
     const tripList = el('div', 'card');
     const tripDetail = el('div');
-
     function renderTripPanel() {
       const trip = state.trips[selectedTripIndex];
-      if (!trip) {
-        tripDetail.innerHTML = '<div class="card" style="padding:32px;text-align:center">No trips yet. Add one to begin planning your next adventure.</div>';
-        return;
-      }
-
-      tripDetail.innerHTML = `
-        <div class="card">
-          <div class="flex-between" style="margin-bottom:16px">
-            <div>
-              <div class="label">Trip Plan</div>
-              <div class="trip-title">${trip.name}</div>
-            </div>
-            <button class="btn btn-small" id="saveTripUpdateBtn">Save</button>
-          </div>
-          <div class="grid" style="gap:14px">
-            <div class="col-6">
-              <div class="label">Budget</div>
-              <div class="note-meta">₱${trip.spent || 0} spent of ₱${trip.budget}</div>
-              <div class="trip-budget-bar"><div class="trip-budget-fill" style="width:${Math.min((trip.spent / trip.budget) * 100 || 0, 100)}%"></div></div>
-              <input type="number" id="tripSpent" placeholder="Update spent" style="margin-top:14px" value="${trip.spent}">
-            </div>
-            <div class="col-6">
-              <div class="label">Dates</div>
-              <input type="date" id="tripStartDate" placeholder="Start date" style="margin-top:14px" value="${trip.startDate || ''}">
-              <input type="date" id="tripEndDate" placeholder="End date" style="margin-top:12px" value="${trip.endDate || ''}">
-            </div>
-          </div>
-          <div class="grid" style="margin-top:22px;gap:14px">
-            <div class="col-6">
-              <div class="label">Checklist</div>
-              <div id="tripChecklist">${(trip.checklist || []).map(item => `
-                <div class="note-item" style="justify-content: space-between;">
-                  <label style="display: flex; align-items: center; gap: 8px; flex: 1;">
-                    <input type="checkbox" data-check="${item.id}" ${item.checked ? 'checked' : ''}> ${item.text}
-                  </label>
-                  <button class="delete-check-btn" data-check-id="${item.id}" style="background: none; border: none; color: var(--accent); cursor: pointer; font-size: 1.1rem; padding: 0;">×</button>
-                </div>
-              `).join('') || '<div class="muted" style="padding:12px">No items yet.</div>'}</div>
-              <div style="display:flex;gap:8px;margin-top:12px">
-                <input id="newChecklistItem" placeholder="Add checklist item" style="flex:1">
-                <button class="btn btn-small" id="addChecklistItemBtn">Add</button>
-              </div>
-            </div>
-            <div class="col-6">
-              <div class="label">Itinerary</div>
-              <div id="tripItinerary">${(trip.itinerary || []).map((entry, idx) => `
-                <div class="note-item" style="justify-content: space-between;">
-                  <div>${entry}</div>
-                  <button class="delete-itin-btn" data-itin-index="${idx}" style="background: none; border: none; color: var(--accent); cursor: pointer; font-size: 1.1rem; padding: 0;">×</button>
-                </div>
-              `).join('') || '<div class="muted" style="padding:12px">No itinerary items yet.</div>'}</div>
-              <div style="display:flex;gap:8px;margin-top:12px">
-                <input id="newItineraryItem" placeholder="Add itinerary item" style="flex:1">
-                <button class="btn btn-small" id="addItineraryItemBtn">Add</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-
+      if (!trip) { tripDetail.innerHTML = '<div class="card" style="padding:32px;text-align:center">No trips yet.</div>'; return; }
+      tripDetail.innerHTML = `<div class="card"><div class="flex-between" style="margin-bottom:16px"><div><div class="label">Trip Plan</div><div class="trip-title">${trip.name}</div></div><button class="btn btn-small" id="saveTripUpdateBtn">Save</button></div><div class="grid" style="gap:14px"><div class="col-6"><div class="label">Budget</div><div class="note-meta">₱${trip.spent||0} spent of ₱${trip.budget}</div><input type="number" id="tripSpent" placeholder="Update spent" style="margin-top:14px" value="${trip.spent}"></div><div class="col-6"><div class="label">Dates</div><input type="date" id="tripStartDate" placeholder="Start date" style="margin-top:14px" value="${trip.startDate||''}"><input type="date" id="tripEndDate" placeholder="End date" style="margin-top:12px" value="${trip.endDate||''}"></div></div></div>`;
       setTimeout(() => {
-        const saveBtn = document.getElementById('saveTripUpdateBtn');
-        const spentInput = document.getElementById('tripSpent');
-        const startInput = document.getElementById('tripStartDate');
-        const endInput = document.getElementById('tripEndDate');
-        const checklistInput = document.getElementById('newChecklistItem');
-        const itineraryInput = document.getElementById('newItineraryItem');
-        const addChecklist = document.getElementById('addChecklistItemBtn');
-        const addItinerary = document.getElementById('addItineraryItemBtn');
-
-        if (saveBtn) {
-          saveBtn.onclick = () => {
-            trip.spent = parseInt(spentInput.value, 10) || trip.spent;
-            trip.startDate = startInput.value;
-            trip.endDate = endInput.value;
-            save();
-            renderTripPanel();
-          };
-        }
-
-        if (addChecklist) {
-          addChecklist.onclick = () => {
-            const text = checklistInput.value.trim();
-            if (!text) return;
-            trip.checklist = trip.checklist || [];
-            trip.checklist.push({ id: Date.now().toString(), text, checked: false });
-            save();
-            renderTripPanel();
-          };
-        }
-
-        if (addItinerary) {
-          addItinerary.onclick = () => {
-            const text = itineraryInput.value.trim();
-            if (!text) return;
-            trip.itinerary = trip.itinerary || [];
-            trip.itinerary.push(text);
-            save();
-            renderTripPanel();
-          };
-        }
-
-        tripDetail.querySelectorAll('input[data-check]').forEach(cb => {
-          cb.onchange = () => {
-            const item = trip.checklist.find(entry => entry.id === cb.dataset.check);
-            if (item) {
-              item.checked = cb.checked;
-              save();
-            }
-          };
-        });
-
-        tripDetail.querySelectorAll('.delete-check-btn').forEach(btn => {
-          btn.onclick = (e) => {
-            e.stopPropagation();
-            const checkId = btn.dataset.checkId;
-            const itemIdx = trip.checklist.findIndex(item => item.id === checkId);
-            if (itemIdx > -1) {
-              if (confirm(`Delete "${trip.checklist[itemIdx].text}"?`)) {
-                trip.checklist.splice(itemIdx, 1);
-                save();
-                renderTripPanel();
-              }
-            }
-          };
-        });
-
-        tripDetail.querySelectorAll('.delete-itin-btn').forEach(btn => {
-          btn.onclick = (e) => {
-            e.stopPropagation();
-            const idx = parseInt(btn.dataset.itinIndex);
-            if (confirm(`Delete "${trip.itinerary[idx]}"?`)) {
-              trip.itinerary.splice(idx, 1);
-              save();
-              renderTripPanel();
-            }
-          };
-        });
+        document.getElementById('saveTripUpdateBtn').onclick = () => { trip.spent=parseInt(document.getElementById('tripSpent').value,10)||trip.spent; trip.startDate=document.getElementById('tripStartDate').value; trip.endDate=document.getElementById('tripEndDate').value; save(); renderTripPanel(); };
       }, 50);
     }
-
     const addForm = el('div', 'col-12');
-    addForm.appendChild(el('div', 'card', `
-      <div class="label">Plan a Trip</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <input id="tripName" placeholder="Trip name (e.g., Tokyo Escape)" style="flex:1;min-width:150px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
-        <input type="number" id="tripBudget" placeholder="Budget" style="width:120px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)">
-        <button id="addTripBtn" class="btn">Add</button>
-      </div>
-    `));
+    addForm.appendChild(el('div', 'card', `<div class="label">Plan a Trip</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><input id="tripName" placeholder="Trip name" style="flex:1;min-width:150px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)"><input type="number" id="tripBudget" placeholder="Budget" style="width:120px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px;color:var(--text)"><button id="addTripBtn" class="btn">Add</button></div>`));
     root.appendChild(addForm);
-
     tripList.innerHTML = '<div class="label">Your Trips</div>';
     tripList.style.marginTop = '18px';
     root.appendChild(tripList);
     root.appendChild(tripDetail);
-
     function refreshTrips() {
-      tripList.innerHTML = `
-        <div class="label">Your Trips</div>
-        ${state.trips.map((trip, idx) => `
-          <div class="note-item" style="cursor:pointer;justify-content:space-between" data-index="${idx}">
-            <div>
-              <div style="font-weight:600">${trip.name}</div>
-              <div class="note-meta">₱${trip.spent || 0} / ₱${trip.budget || 0}</div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <div style="color:var(--secondary)">View</div>
-              <button class="delete-trip-btn" data-index="${idx}" style="background: none; border: none; color: var(--accent); cursor: pointer; font-size: 1.1rem; padding: 0;">×</button>
-            </div>
-          </div>
-        `).join('')}
-      `;
-      tripList.querySelectorAll('[data-index]').forEach(item => {
-        item.onclick = (e) => {
-          if (e.target.classList.contains('delete-trip-btn')) return;
-          selectedTripIndex = parseInt(item.dataset.index, 10);
-          renderTripPanel();
-        };
-      });
-      
-      tripList.querySelectorAll('.delete-trip-btn').forEach(btn => {
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          const idx = parseInt(btn.dataset.index);
-          if (confirm(`Delete trip "${state.trips[idx].name}"?`)) {
-            state.trips.splice(idx, 1);
-            save();
-            if (selectedTripIndex >= state.trips.length && selectedTripIndex > 0) {
-              selectedTripIndex--;
-            }
-            refreshTrips();
-          }
-        };
-      });
+      tripList.innerHTML = `<div class="label">Your Trips</div>${state.trips.map((t,i) => `<div class="note-item" style="cursor:pointer;justify-content:space-between" data-index="${i}"><div><div style="font-weight:600">${t.name}</div><div class="note-meta">₱${t.spent||0} / ₱${t.budget||0}</div></div><div style="display:flex;align-items:center;gap:12px;"><div style="color:var(--secondary)">View</div><button class="delete-trip-btn" data-index="${i}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:1.1rem;padding:0;">×</button></div></div>`).join('')}`;
+      tripList.querySelectorAll('[data-index]').forEach(item => { item.onclick = (e) => { if(e.target.classList.contains('delete-trip-btn'))return; selectedTripIndex=parseInt(item.dataset.index,10); renderTripPanel(); }; });
+      tripList.querySelectorAll('.delete-trip-btn').forEach(btn => { btn.onclick = (e) => { e.stopPropagation(); const idx=parseInt(btn.dataset.index); if(confirm('Delete?')){ state.trips.splice(idx,1); save(); refreshTrips(); }}; });
       if (state.trips.length) renderTripPanel();
     }
-
     setTimeout(() => {
-      const addTripBtn = document.getElementById('addTripBtn');
-      if (addTripBtn) {
-        addTripBtn.onclick = () => {
-          const name = document.getElementById('tripName').value.trim();
-          const budget = parseInt(document.getElementById('tripBudget').value, 10) || 0;
-          if (!name || !budget) return;
-          state.trips.push({ name, budget, spent: 0, checklist: [], itinerary: [], startDate: '', endDate: '' });
-          save();
-          document.getElementById('tripName').value = '';
-          document.getElementById('tripBudget').value = '';
-          selectedTripIndex = state.trips.length - 1;
-          refreshTrips();
-        };
-      }
+      document.getElementById('addTripBtn').onclick = () => { const name=document.getElementById('tripName').value.trim(), budget=parseInt(document.getElementById('tripBudget').value,10)||0; if(!name||!budget)return; state.trips.push({name,budget,spent:0,checklist:[],itinerary:[],startDate:'',endDate:''}); save(); document.getElementById('tripName').value=''; document.getElementById('tripBudget').value=''; selectedTripIndex=state.trips.length-1; refreshTrips(); };
     }, 50);
-
     refreshTrips();
     return root;
   }
 
   function renderUs() {
     const root = el('div', 'grid us-page');
-
     const pageHeader = el('div', 'col-12');
-    pageHeader.appendChild(el('div', 'us-page-header', `
-      <div></div>
-      <button class="btn btn-small us-logout-btn" id="logoutBtn">Logout</button>
-    `));
+    pageHeader.appendChild(el('div', 'us-page-header', `<div></div><button class="btn btn-small us-logout-btn" id="logoutBtn">Logout</button>`));
     root.appendChild(pageHeader);
-
-    // Couple Info Card
     const infoCard = el('div', 'col-12');
-    infoCard.appendChild(el('div', 'card', `
-      <div style="text-align:center;font-size:3rem;margin-bottom:16px">💑</div>
-      <div class="couple-names" style="text-align:center">${state.couple.name1} <span class="heart">🖤</span> ${state.couple.name2}</div>
-      <div style="text-align:center;color:var(--secondary);margin-top:16px">
-        <label style="display:block;margin-bottom:8px">Relationship Start Date</label>
-        <input type="date" id="anniversary" value="${state.couple.startDate || ''}" style="margin-top:8px" disabled>
-      </div>
-    `));
+    infoCard.appendChild(el('div', 'card', `<div style="text-align:center;font-size:3rem;margin-bottom:16px">💑</div><div class="couple-names" style="text-align:center">${state.couple.name1} <span class="heart">🖤</span> ${state.couple.name2}</div><div style="text-align:center;color:var(--secondary);margin-top:16px"><label style="display:block;margin-bottom:8px">Relationship Start Date</label><input type="date" id="anniversary" value="${state.couple.startDate||''}" style="margin-top:8px" disabled></div>`));
     root.appendChild(infoCard);
-
-    // Stats
     const stats = el('div', 'col-12');
     const days = getDaysTogether();
-    const user = (state.auth.currentUser && state.auth.currentUser.username) ? state.auth.currentUser.username : state.couple.name1;
-    const other = user === state.couple.name1 ? state.couple.name2 : state.couple.name1;
-    stats.appendChild(el('div', 'card', `
-      <div class="label" style="margin-bottom:16px">Relationship Stats</div>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-icon">❤️</div>
-          <div class="stat-number">${days.total}</div>
-          <div class="stat-label">Days Together</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">🎉</div>
-          <div class="stat-number">${state.events.length}</div>
-          <div class="stat-label">Dates</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">✈️</div>
-          <div class="stat-number">${state.trips.length}</div>
-          <div class="stat-label">Trips</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">📸</div>
-          <div class="stat-number">${state.memories.length}</div>
-          <div class="stat-label">Memories</div>
-        </div>
-      </div>
-    `));
+    stats.appendChild(el('div', 'card', `<div class="label" style="margin-bottom:16px">Relationship Stats</div><div class="stats-grid"><div class="stat-card"><div class="stat-icon">❤️</div><div class="stat-number">${days.total}</div><div class="stat-label">Days Together</div></div><div class="stat-card"><div class="stat-icon">🎉</div><div class="stat-number">${state.events.length}</div><div class="stat-label">Dates</div></div><div class="stat-card"><div class="stat-icon">✈️</div><div class="stat-number">${state.trips.length}</div><div class="stat-label">Trips</div></div><div class="stat-card"><div class="stat-icon">📸</div><div class="stat-number">${state.memories.length}</div><div class="stat-label">Memories</div></div></div>`));
     root.appendChild(stats);
-
     const goalsCard = el('div', 'col-12');
-    goalsCard.appendChild(el('div', 'card', `
-      <div class="flex-between" style="margin-bottom:16px">
-        <div>
-          <div class="label">Relationship Goals</div>
-          <div style="font-size:0.9rem;color:var(--secondary)">Track shared milestones and achievements.</div>
-        </div>
-        <button class="btn btn-small" id="goalExpandBtn">Manage</button>
-      </div>
-      <div id="usGoalsContainer" style="display:grid;gap:12px">
-        ${state.goals.length ? state.goals.map(goal => {
-          const pct = Math.round((goal.progress / goal.target) * 100);
-          return `
-            <div class="goal-item-us" data-goal-id="${goal.id}" style="padding:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:10px;display:flex;gap:12px;align-items:center;justify-content:space-between">
-              <div style="flex:1;cursor:pointer" class="goal-view-area">
-                <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-                  <strong>${goal.emoji} ${goal.title}</strong>
-                  <span style="color:var(--secondary);font-size:0.9rem">${pct}%</span>
-                </div>
-                <div style="display:flex;gap:12px;align-items:center">
-                  <div class="progress-bar" style="flex:1;height:6px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden">
-                    <div class="progress-fill" style="width:${pct}%;height:100%;background:linear-gradient(90deg, #d4af37, #f4d03f)"></div>
-                  </div>
-                  <div style="font-size:0.8rem;color:var(--secondary);min-width:100px;text-align:right">
-                    ${goal.type === 'savings' ? `₱${goal.progress.toLocaleString()}` : `${goal.progress}`} / ${goal.type === 'savings' ? `₱${goal.target.toLocaleString()}` : goal.target}
-                  </div>
-                </div>
-              </div>
-              <button class="btn btn-sec btn-small goal-delete-btn" data-goal-id="${goal.id}" style="padding:8px 12px;flex-shrink:0">×</button>
-            </div>
-          `;
-        }).join('') : '<div class="muted" style="padding:20px;text-align:center">No goals yet.</div>'}
-      </div>
-      <div id="goalExpandPanel" style="display:none;margin-top:18px;border-top:1px solid rgba(255,255,255,0.1);padding-top:18px">
-        <div class="label" style="margin-bottom:12px">Add New Goal</div>
-        <div style="display:grid;gap:12px">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <input id="goalEmoji" placeholder="Emoji" value="✨" style="text-align:center" maxlength="2">
-            <input id="goalTitle" placeholder="Goal title" type="text">
-          </div>
-          <select id="goalType" style="padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text)">
-            <option value="savings">💰 Savings Goal</option>
-            <option value="count">🎯 Count Goal</option>
-            <option value="list">📋 List/Checklist</option>
-          </select>
-          <input id="goalTarget" placeholder="Target number" type="number" min="1">
-          <input id="goalDeadline" placeholder="Deadline (optional)" type="date">
-          <button id="goalAddBtn" class="btn">Create Goal</button>
-        </div>
-      </div>
-    `));
+    goalsCard.appendChild(el('div', 'card', `<div class="flex-between" style="margin-bottom:16px"><div><div class="label">Relationship Goals</div></div><button class="btn btn-small" id="goalExpandBtn">Manage</button></div><div id="usGoalsContainer">${state.goals.map(g=>`<div>${g.emoji} ${g.title}</div>`).join('')||'<div class="muted">No goals.</div>'}</div>`));
     root.appendChild(goalsCard);
-
     setTimeout(() => {
-      const logoutBtn = document.getElementById('logoutBtn');
-      if (logoutBtn) logoutBtn.onclick = () => { state.auth.currentUser = null; state.auth.token = null; save(); navigate('login'); };
-
-      const goalExpandBtn = document.getElementById('goalExpandBtn');
-      const goalExpandPanel = document.getElementById('goalExpandPanel');
-      if (goalExpandBtn && goalExpandPanel) {
-        goalExpandBtn.onclick = () => goalExpandPanel.style.display = goalExpandPanel.style.display === 'none' ? 'block' : 'none';
-      }
-
-      const goalItems = document.querySelectorAll('.goal-item-us');
-      goalItems.forEach(item => {
-        const goalViewArea = item.querySelector('.goal-view-area');
-        const deleteBtn = item.querySelector('.goal-delete-btn');
-        if (goalViewArea) {
-          goalViewArea.onclick = () => {
-            const goalId = item.dataset.goalId;
-            const goal = state.goals.find(g => g.id === goalId);
-            if (goal) showGoalDetail(goal);
-          };
-        }
-        if (deleteBtn) {
-          deleteBtn.onclick = (e) => {
-            e.stopPropagation();
-            const goalId = deleteBtn.dataset.goalId;
-            if (confirm('Delete this goal?')) {
-              state.goals = state.goals.filter(g => g.id !== goalId);
-              save();
-              navigate('us');
-            }
-          };
-        }
-      });
-
-      const goalAddBtn = document.getElementById('goalAddBtn');
-      const goalEmoji = document.getElementById('goalEmoji');
-      const goalTitle = document.getElementById('goalTitle');
-      const goalType = document.getElementById('goalType');
-      const goalTarget = document.getElementById('goalTarget');
-      const goalDeadline = document.getElementById('goalDeadline');
-
-      if (goalAddBtn) goalAddBtn.onclick = () => {
-        const emoji = goalEmoji?.value?.trim() || '✨';
-        const title = goalTitle?.value?.trim();
-        const type = goalType?.value || 'count';
-        const target = parseInt(goalTarget?.value, 10) || 100;
-        const deadline = goalDeadline?.value || null;
-        if (!title) return;
-        state.goals.push({
-          id: Date.now().toString(),
-          emoji,
-          title,
-          type,
-          progress: 0,
-          target,
-          deadline,
-          milestones: [{ value: Math.floor(target * 0.25), label: Math.floor(target * 0.25), reward: '🏅 Progress' }, { value: Math.floor(target * 0.5), label: Math.floor(target * 0.5), reward: '🏅 Halfway' }, { value: Math.floor(target * 0.75), label: Math.floor(target * 0.75), reward: '🏆 Almost There' }, { value: target, label: target, reward: '🏆 Complete' }],
-          items: [],
-          createdAt: new Date().toISOString()
-        });
-        save();
-        navigate('us');
-      };
+      document.getElementById('logoutBtn').onclick = () => { state.auth.currentUser = null; state.auth.token = null; save(); navigate('login'); };
     }, 50);
-
-
-
-    // Our Conversations - Answered Questions
     const conversationsCard = el('div', 'col-12');
-    let conversationsHTML = `
-      <div class="card">
-        <div class="label" style="margin-bottom:16px">Our Conversations 💬</div>
-        <div style="display: grid; gap: 12px;">
-    `;
-    
-    if (state.answeredQuestions.length === 0) {
-      conversationsHTML += `<div style="color: var(--secondary); text-align: center; padding: 16px;">No conversations yet. Start by answering today's question!</div>`;
-    } else {
-      state.answeredQuestions.slice().reverse().forEach((qa, idx) => {
-        conversationsHTML += `
-          <div style="border-left: 3px solid var(--accent); padding: 12px; background: rgba(212, 175, 55, 0.05); border-radius: 4px;">
-            <div style="color: var(--secondary); font-size: 0.85rem; margin-bottom: 6px;">${qa.date} · ${qa.by}</div>
-            <div style="font-size: 0.95rem; margin-bottom: 8px; font-style: italic; color: var(--secondary);">Q: ${qa.question}</div>
-            <div style="font-size: 0.95rem; color: var(--text);">A: ${qa.answer}</div>
-          </div>
-        `;
-      });
-    }
-    
-    conversationsHTML += `</div></div>`;
-    conversationsCard.innerHTML = conversationsHTML;
+    conversationsCard.innerHTML = `<div class="card"><div class="label" style="margin-bottom:16px">Our Conversations 💬</div></div>`;
     root.appendChild(conversationsCard);
-
     const app = el('div'); app.appendChild(root);
-    setTimeout(() => {
-
-    }, 50);
-
     return app;
   }
 
@@ -2043,16 +1322,10 @@ const GAVVY = (() => {
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.route === route));
     const app = document.getElementById('app');
     app.innerHTML = '';
-
     if (!state.auth.currentUser && route !== 'login') route = 'login';
     if (state.auth.currentUser && route === 'login') route = 'home';
-
-    // Track current route for refreshing
     currentRoute = route;
-
-    // Save current route to localStorage
     localStorage.setItem('gavvy-lastRoute', route);
-
     if (route === 'home') app.appendChild(renderHome());
     else if (route === 'memories') app.appendChild(renderMemories());
     else if (route === 'calendar') app.appendChild(renderCalendar());
@@ -2066,58 +1339,38 @@ const GAVVY = (() => {
   }
 
   function init() {
-    // Add memory modal
     const modalWrapper = el('div', 'modal');
     const modalContent = el('div');
     modalContent.id = 'memoryModal';
     modalWrapper.appendChild(modalContent);
     document.body.appendChild(modalWrapper);
-
-    // Add floating action button
     const fab = el('button', 'fab');
     fab.innerHTML = '+';
     fab.onclick = showFAB;
     document.body.appendChild(fab);
-
     const fabMenu = el('div', 'fab-menu');
     fabMenu.id = 'fabMenu';
-    fabMenu.innerHTML = `
-      <div class="fab-item" data-action="memory">📸 Add Memory</div>
-      <div class="fab-item" data-action="dateIdea">💕 Add Date Idea</div>
-      <div class="fab-item" data-action="note">📝 Add Note</div>
-      <div class="fab-item" data-action="goal">🎯 Add Goal</div>
-      <div class="fab-item" data-action="trip">✈️ Add Trip</div>
-    `;
+    fabMenu.innerHTML = `<div class="fab-item" data-action="memory">📸 Add Memory</div><div class="fab-item" data-action="dateIdea">💕 Add Date Idea</div><div class="fab-item" data-action="note">📝 Add Note</div><div class="fab-item" data-action="goal">🎯 Add Goal</div><div class="fab-item" data-action="trip">✈️ Add Trip</div>`;
     document.body.appendChild(fabMenu);
-
     fabMenu.querySelectorAll('.fab-item').forEach(item => {
       item.onclick = () => {
         const action = item.dataset.action;
         if (action === 'memory') navigate('memories');
         else if (action === 'dateIdea') navigate('ideas');
         else if (action === 'note') navigate('notes');
-        else if (action === 'goal') {
-          navigate('us');
-        }
+        else if (action === 'goal') navigate('us');
         else if (action === 'trip') navigate('trips');
         fabMenu.classList.remove('active');
       };
     });
-
     document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => navigate(b.dataset.route)));
-    
-    // Restore last viewed route on page reload
     let initialRoute = 'home';
     if (state.auth.currentUser) {
       const lastRoute = localStorage.getItem('gavvy-lastRoute');
       if (lastRoute && lastRoute !== 'login') initialRoute = lastRoute;
-    } else {
-      initialRoute = 'login';
-    }
+    } else { initialRoute = 'login'; }
     navigate(initialRoute);
   }
-
   return { init };
 })();
-
 document.addEventListener('DOMContentLoaded', () => GAVVY.init());
