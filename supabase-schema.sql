@@ -95,6 +95,25 @@ CREATE TABLE IF NOT EXISTS public.trips (
 CREATE INDEX IF NOT EXISTS idx_trips_couple_id ON public.trips(couple_id);
 
 -- ================================================
+-- GOALS TABLE
+-- ================================================
+CREATE TABLE IF NOT EXISTS public.goals (
+    id TEXT NOT NULL,
+    couple_id UUID NOT NULL REFERENCES public.couples(id),
+    emoji TEXT DEFAULT '✨',
+    title TEXT NOT NULL,
+    type TEXT DEFAULT 'count',
+    progress NUMERIC DEFAULT 0,
+    target NUMERIC DEFAULT 100,
+    deadline DATE,
+    milestones JSONB DEFAULT '[]',
+    items JSONB DEFAULT '[]',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    PRIMARY KEY (id, couple_id)
+);
+CREATE INDEX IF NOT EXISTS idx_goals_couple_id ON public.goals(couple_id);
+
+-- ================================================
 -- PERIOD ENTRIES TABLE
 -- ================================================
 CREATE TABLE IF NOT EXISTS public.period_entries (
@@ -158,6 +177,7 @@ ALTER TABLE public.memories DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.lists DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trips DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.goals DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.period_entries DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mood_settings DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.questions DISABLE ROW LEVEL SECURITY;
