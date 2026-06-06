@@ -1,127 +1,59 @@
 // GAVVY - Dark Luxury Couple App
-// Updated to use Supabase for data persistence
 const GAVVY = (() => {
-  // Use stateManager from supabase-client.js if available, otherwise use localStorage fallback
-  let state;
-  let useSupabase = false;
-  let currentRoute = 'home';
-
-  // Initialize state - try Supabase first, fall back to localStorage
-  async function initState() {
-    state = getDefaultState();
-    load(); // Always load localStorage first (fast, instant)
-    
-    // Check if Supabase is configured and available
-    const supabaseConfigured = typeof window.SUPABASE_CONFIG !== 'undefined' && 
-        window.SUPABASE_CONFIG.url !== 'https://your-project-id.supabase.co' &&
-        window.SUPABASE_CONFIG.anonKey !== 'your-anon-key-here';
-    
-    if (supabaseConfigured && window.supabase) {
-      useSupabase = true;
-      try {
-        // Try loading from Supabase with a timeout to prevent infinite loading
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
-        const loadPromise = (async () => {
-          const sb = window.supabase;
-          const coupleR = await sb.from('couples').select('*').eq('id', '00000000-0000-0000-0000-000000000010');
-          if (coupleR.data && coupleR.data[0]) {
-            state.couple.name1 = coupleR.data[0].name1;
-            state.couple.name2 = coupleR.data[0].name2;
-            state.couple.startDate = coupleR.data[0].start_date;
-          }
-          const [eventsR, memoriesR, notesR] = await Promise.all([
-            sb.from('events').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
-            sb.from('memories').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
-            sb.from('notes').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010')
-          ]);
-          if (eventsR.data && eventsR.data.length) state.events = eventsR.data.map(e => ({ emoji: e.emoji, title: e.title, date: e.date }));
-          if (memoriesR.data && memoriesR.data.length) state.memories = memoriesR.data.map(m => ({ emoji: m.emoji, title: m.title, story: m.story, location: m.location, date: m.date, image: m.image_url }));
-          if (notesR.data && notesR.data.length) state.notes = notesR.data.map(n => ({ id: n.id, title: n.title, body: n.content, date: (n.created_at || '').split('T')[0] }));
-          const [tripsR, periodR, listsR, moodsR] = await Promise.all([
-            sb.from('trips').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
-            sb.from('period_entries').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
-            sb.from('lists').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010'),
-            sb.from('mood_settings').select('*').eq('couple_id', '00000000-0000-0000-0000-000000000010')
-          ]);
-          if (tripsR.data && tripsR.data.length) state.trips = tripsR.data.map(t => ({ name: t.name, budget: t.budget, spent: t.spent, startDate: t.start_date, endDate: t.end_date, checklist: typeof t.checklist === 'string' ? JSON.parse(t.checklist) : (t.checklist || []), itinerary: typeof t.itinerary === 'string' ? JSON.parse(t.itinerary) : (t.itinerary || []) }));
-          if (periodR.data && periodR.data.length) state.periodTracker.entries = periodR.data.map(p => ({ id: p.id, date: p.date, periodLength: p.period_length, flow: p.flow, symptoms: typeof p.symptoms === 'string' ? JSON.parse(p.symptoms) : (p.symptoms || []), note: p.note }));
-          if (listsR.data && listsR.data.length) listsR.data.forEach(list => { state.lists[list.list_type] = typeof list.items === 'string' ? JSON.parse(list.items) : (list.items || []); });
-          if (moodsR.data && moodsR.data[0]) state.mood.customMoods = typeof moodsR.data[0].custom_moods === 'string' ? JSON.parse(moodsR.data[0].custom_moods) : (moodsR.data[0].custom_moods || state.mood.customMoods);
-          console.log('Cloud data loaded!');
-        })();
-        await Promise.race([loadPromise, timeoutPromise]);
-      } catch (e) {
-        console.warn('Cloud load failed, using local data:', e.message);
-      }
+  let state = {
+    couple: { name1: 'Gab', name2: 'Avi', startDate: null },
+    memories: [],
+    notes: [],
+    events: [],
+    goals: [
+      { id: '1', emoji: '✈️', title: 'Japan 2027', type: 'savings', progress: 32500, target: 50000, deadline: '2027-12-31', milestones: [{ value: 10000, label: '₱10k', reward: '🎯 Dreamer' }, { value: 20000, label: '₱20k', reward: '🎯 Planner' }, { value: 30000, label: '₱30k', reward: '🏅 Saver' }, { value: 40000, label: '₱40k', reward: '🏅 Go-Getter' }, { value: 50000, label: '₱50k', reward: '🏆 Travel Legends' }], createdAt: '2026-01-15' },
+      { id: '2', emoji: '🎬', title: 'Movie Challenge', type: 'count', progress: 67, target: 100, milestones: [{ value: 25, label: '25 Movies', reward: '🏅 Cinephile I' }, { value: 50, label: '50 Movies', reward: '🏅 Cinephile II' }, { value: 75, label: '75 Movies', reward: '🏅 Movie Master' }, { value: 100, label: '100 Movies', reward: '🏆 Movie Legends' }], items: [{ id: '1', name: 'Interstellar', completed: true, date: '2026-02-14' }, { id: '2', name: 'La La Land', completed: true, date: '2026-03-01' }, { id: '3', name: 'Her', completed: true, date: '2026-03-15' }], createdAt: '2026-01-01' }
+    ],
+    lists: { dateIdeas: [], travelList: [], movies: [], restaurants: [], giftIdeas: [] },
+    trips: [],
+    periodTracker: { entries: [
+      { id: '1', date: '2026-02-18', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
+      { id: '2', date: '2026-03-26', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
+      { id: '3', date: '2026-05-02', periodLength: 6, flow: 'normal', symptoms: [], note: '' }
+    ], lastPeriodDate: '2026-05-02', averageLength: 36, periodLength: 6 },
+    auth: { currentUser: null, token: null },
+    questions: [
+      'What place would you like to visit together?',
+      'What\'s a favorite memory we share?',
+      'What\'s something you love about me?',
+      'Where do you see us in 5 years?',
+      'What should we do next weekend?'
+    ],
+    currentQuestion: 0,
+    answeredQuestions: [],
+    mood: { current: {}, customMoods: ['😊 Happy', '😌 Relaxed', '😴 Tired', '😔 Sad', '🤩 Excited'], selectedPerson: 'Gab', updatedAt: new Date().toISOString() },
+    surprise: {
+      Gab: { preview: 'Message locked until June 15, 2026 · 8:00 PM', message: 'Every day with you feels like the most beautiful adventure.', unlockDate: '2026-06-15T20:00:00' },
+      Avi: { preview: 'Message locked until June 15, 2026 · 8:00 PM', message: 'Every day with you feels like the most beautiful adventure.', unlockDate: '2026-06-15T20:00:00' }
     }
-  }
-
-  function getDefaultState() {
-    return {
-      couple: { name1: 'Gab', name2: 'Avi', startDate: null },
-      memories: [],
-      notes: [],
-      events: [],
-      goals: [
-        { id: '1', emoji: '✈️', title: 'Japan 2027', type: 'savings', progress: 32500, target: 50000, deadline: '2027-12-31', milestones: [{ value: 10000, label: '₱10k', reward: '🎯 Dreamer' }, { value: 20000, label: '₱20k', reward: '🎯 Planner' }, { value: 30000, label: '₱30k', reward: '🏅 Saver' }, { value: 40000, label: '₱40k', reward: '🏅 Go-Getter' }, { value: 50000, label: '₱50k', reward: '🏆 Travel Legends' }], createdAt: '2026-01-15' },
-        { id: '2', emoji: '🎬', title: 'Movie Challenge', type: 'count', progress: 67, target: 100, milestones: [{ value: 25, label: '25 Movies', reward: '🏅 Cinephile I' }, { value: 50, label: '50 Movies', reward: '🏅 Cinephile II' }, { value: 75, label: '75 Movies', reward: '🏅 Movie Master' }, { value: 100, label: '100 Movies', reward: '🏆 Movie Legends' }], items: [{ id: '1', name: 'Interstellar', completed: true, date: '2026-02-14' }, { id: '2', name: 'La La Land', completed: true, date: '2026-03-01' }, { id: '3', name: 'Her', completed: true, date: '2026-03-15' }], createdAt: '2026-01-01' }
-      ],
-      lists: { dateIdeas: [], travelList: [], movies: [], restaurants: [], giftIdeas: [] },
-      trips: [],
-      periodTracker: { entries: [
-        { id: '1', date: '2026-02-18', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
-        { id: '2', date: '2026-03-26', periodLength: 6, flow: 'normal', symptoms: [], note: '' },
-        { id: '3', date: '2026-05-02', periodLength: 6, flow: 'normal', symptoms: [], note: '' }
-      ], lastPeriodDate: '2026-05-02', averageLength: 36, periodLength: 6 },
-      auth: { currentUser: null, token: null },
-      questions: [
-        'What place would you like to visit together?',
-        'What\'s a favorite memory we share?',
-        'What\'s something you love about me?',
-        'Where do you see us in 5 years?',
-        'What should we do next weekend?'
-      ],
-      currentQuestion: 0,
-      answeredQuestions: [],
-      mood: { current: {}, customMoods: ['😊 Happy', '😌 Relaxed', '😴 Tired', '😔 Sad', '🤩 Excited'], selectedPerson: 'Gab', updatedAt: new Date().toISOString() },
-      surprise: {
-        Gab: { preview: 'Message locked until June 15, 2026 · 8:00 PM', message: 'Every day with you feels like the most beautiful adventure.', unlockDate: '2026-06-15T20:00:00' },
-        Avi: { preview: 'Message locked until June 15, 2026 · 8:00 PM', message: 'Every day with you feels like the most beautiful adventure.', unlockDate: '2026-06-15T20:00:00' }
-      }
-    };
-  }
+  };
 
   const API_BASE = '/api';
+  let currentRoute = 'home';
 
-  // Save function - uses Supabase if available, otherwise localStorage
   async function save() {
-    if (useSupabase && window.stateManager) {
-      try {
-        await window.stateManager.save();
-        return;
-      } catch (e) {
-        console.error('Supabase save failed, falling back to localStorage:', e);
-      }
-    }
-    // Fallback to localStorage
-    try {
-      localStorage.setItem('gavvy-state', JSON.stringify(state));
-    } catch (e) {
-      console.error('Failed to save to localStorage:', e);
+    // Always cache to localStorage
+    localStorage.setItem('gavvy-state', JSON.stringify(state));
+    // Also save to Supabase if configured
+    if (window._supabaseReady && window.saveToSupabase) {
+      try { await window.saveToSupabase(state); } catch(e) { console.warn('Supabase save failed:', e); }
     }
   }
-
-  // Load function - uses localStorage
-  function load() {
-    try {
-      const s = localStorage.getItem('gavvy-state');
-      if (s) {
-        const loaded = JSON.parse(s);
-        // Merge loaded state with defaults
-        state = { ...state, ...loaded };
-      }
-    } catch (e) {
-      console.error('Failed to load from localStorage:', e);
+  function load() { try { const s = localStorage.getItem('gavvy-state'); if (s) state = { ...state, ...JSON.parse(s) }; } catch (e) { } }
+  async function loadFromCloud() {
+    if (window._supabaseReady && window.loadFromSupabase) {
+      try {
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
+        const loadOp = window.loadFromSupabase(state);
+        await Promise.race([loadOp, timeout]);
+        // Cache back to localStorage
+        localStorage.setItem('gavvy-state', JSON.stringify(state));
+      } catch(e) { console.warn('Supabase load failed:', e); }
     }
   }
   function closeModalAndRefresh() {
@@ -164,6 +96,8 @@ const GAVVY = (() => {
   }
 
   load();
+  // Load cloud data (Supabase) - this runs async and updates state
+  loadFromCloud();
   
   // Force update period tracker with correct data
   state.periodTracker = {
