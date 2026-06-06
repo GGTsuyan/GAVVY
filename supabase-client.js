@@ -1,22 +1,14 @@
 /**
- * Supabase Client - Fixed for "all devices see same data"
- * RLS is disabled and anon key has full access, so we use a fixed couple ID.
- * No auth needed. All data is shared across all devices/browsers instantly.
+ * Supabase Client - All data sync for "all devices see same data"
  */
 const COUPLE_ID = '00000000-0000-0000-0000-000000000010';
 const GAB_ID = '00000000-0000-0000-0000-000000000001';
 const AVI_ID = '00000000-0000-0000-0000-000000000002';
 
-console.log('[SUPABASE] Client loading...');
-
 const config = window.SUPABASE_CONFIG || {
     url: 'https://tdlsgxoiaxauswarjzjg.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkbHNneG9pYXhhdXN3YXJqempnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0MDczNzYsImV4cCI6MjA5NTk4MzM3Nn0.FsrzIeojP3P1SwUuIglm9dmt8hJI8OF_MS8m9nv5v2E'
 };
-
-if (typeof supabase === 'undefined') {
-    console.error('[SUPABASE] Supabase JS library not loaded!');
-}
 
 const { createClient } = supabase;
 const supabaseClient = createClient(config.url, config.anonKey);
@@ -29,7 +21,7 @@ async function loadFromSupabase(state) {
     if (!supabaseConfigured) return false;
     try {
         const sb = supabaseClient;
-        const [coupleR, eventsR, memoriesR, notesR, listsR, tripsR, periodR, moodsR, answersR, qR] = await Promise.all([
+        const [coupleR, eventsR, memoriesR, notesR, listsR, tripsR, periodR, moodsR, answersR, qR, goalsR] = await Promise.all([
             sb.from('couples').select('*').eq('id', COUPLE_ID).maybeSingle(),
             sb.from('events').select('*').eq('couple_id', COUPLE_ID),
             sb.from('memories').select('*').eq('couple_id', COUPLE_ID),
@@ -39,7 +31,8 @@ async function loadFromSupabase(state) {
             sb.from('period_entries').select('*').eq('couple_id', COUPLE_ID),
             sb.from('mood_settings').select('*').eq('couple_id', COUPLE_ID),
             sb.from('answers').select('*').eq('couple_id', COUPLE_ID).order('created_at', { ascending: true }),
-            sb.from('questions').select('*').eq('couple_id', COUPLE_ID).order('created_at', { ascending: true })
+            sb.from('questions').select('*').eq('couple_id', COUPLE_ID).maybeSingle(),
+            sb.from('goals').select('*').eq('couple_id', COUPLE_ID)
         ]);
 
         if (coupleR.data) {
@@ -70,12 +63,10 @@ async function loadFromSupabase(state) {
         }
         if (moodsR.data && moodsR.data[0]) {
             state.mood.customMoods = typeof moodsR.data[0].custom_moods === 'string' ? JSON.parse(moodsR.data[0].custom_moods) : (moodsR.data[0].custom_moods || state.mood.customMoods);
-            // Load mood per person
             if (moodsR.data[0].mood_gab) state.mood.current[state.couple.name1 || 'Gab'] = moodsR.data[0].mood_gab;
             if (moodsR.data[0].mood_avi) state.mood.current[state.couple.name2 || 'Avi'] = moodsR.data[0].mood_avi;
             if (moodsR.data[0].selected_person) state.mood.selectedPerson = moodsR.data[0].selected_person;
         }
-        // Load answered questions
         if (answersR.data && answersR.data.length) {
             state.answeredQuestions = answersR.data.map(a => ({
                 question: a.question_text,
@@ -84,11 +75,24 @@ async function loadFromSupabase(state) {
                 by: a.created_by || 'Gab'
             }));
         }
-        // Load currentQuestion index
-        if (qR.data && qR.data.length > 0) {
-            state.currentQuestion = qR.data[0].current_index || 0;
+        if (qR.data) {
+            state.currentQuestion = qR.data.current_index || 0;
         }
-
+        // LOAD GOALS
+        if (goalsR.data && goalsR.data.length) {
+            state.goals = goalsR.data.map(g => ({
+                id: g.id,
+                emoji: g.emoji,
+                title: g.title,
+                type: g.type,
+                progress: g.progress || 0,
+                target: g.target,
+                deadline: g.deadline || null,
+                milestones: typeof g.milestones === 'string' ? JSON.parse(g.milestones) : (g.milestones || []),
+                items: typeof g.items === 'string' ? JSON.parse(g.items) : (g.items || []),
+                createdAt: g.created_at ? g.created_at.split('T')[0] : new Date().toISOString().split('T')[0]
+            }));
+        }
         return true;
     } catch (e) {
         console.error('[SUPABASE] Load error:', e.message);
@@ -100,7 +104,7 @@ async function saveToSupabase(state) {
     if (!supabaseConfigured) return false;
     const sb = supabaseClient;
     try {
-        // Couple (always save)
+        // Couple
         const { data: existingCouple } = await sb.from('couples').select('id').eq('id', COUPLE_ID).maybeSingle();
         if (existingCouple) {
             await sb.from('couples').update({ name1: state.couple.name1, name2: state.couple.name2, start_date: state.couple.startDate }).eq('id', COUPLE_ID);
@@ -108,6 +112,7 @@ async function saveToSupabase(state) {
             await sb.from('couples').insert({ id: COUPLE_ID, user1_id: GAB_ID, user2_id: AVI_ID, name1: state.couple.name1, name2: state.couple.name2, start_date: state.couple.startDate });
         }
 
+        // Each table is wrapped individually. Only delete+reinsert if we have data.
         // Events
         if (state.events && state.events.length > 0) {
             await sb.from('events').delete().eq('couple_id', COUPLE_ID);
@@ -118,10 +123,10 @@ async function saveToSupabase(state) {
             await sb.from('memories').delete().eq('couple_id', COUPLE_ID);
             await sb.from('memories').insert(state.memories.map(m => ({ couple_id: COUPLE_ID, title: m.title, story: m.story || m.text || '', emoji: m.emoji || '📸', image_url: m.image || null, location: m.location || null, date: m.date, category: m.category || 'photos' })));
         }
-        // Notes
+        // Notes - don't pass id (let Supabase auto-generate UUID), match by date+title
         if (state.notes && state.notes.length > 0) {
             await sb.from('notes').delete().eq('couple_id', COUPLE_ID);
-            await sb.from('notes').insert(state.notes.map(n => ({ id: n.id, couple_id: COUPLE_ID, title: n.title || 'Untitled', content: n.body || '', created_by: GAB_ID, created_at: n.date ? n.date + 'T00:00:00' : new Date().toISOString() })));
+            await sb.from('notes').insert(state.notes.map(n => ({ couple_id: COUPLE_ID, title: n.title || 'Untitled', content: n.body || '', created_by: GAB_ID, created_at: n.date ? n.date + 'T00:00:00' : new Date().toISOString() })));
         }
         // Lists
         for (const [listType, items] of Object.entries(state.lists)) {
@@ -140,7 +145,24 @@ async function saveToSupabase(state) {
             await sb.from('period_entries').delete().eq('couple_id', COUPLE_ID);
             await sb.from('period_entries').insert(state.periodTracker.entries.map(e => ({ couple_id: COUPLE_ID, user_id: GAB_ID, date: e.date, period_length: e.periodLength || e.period_length, flow: e.flow || 'normal', symptoms: JSON.stringify(e.symptoms || []), note: e.note || '' })));
         }
-        // Mood settings (always sync) - wrap in try-catch to handle missing columns
+        // GOALS - NEW!
+        if (state.goals && state.goals.length > 0) {
+            await sb.from('goals').delete().eq('couple_id', COUPLE_ID);
+            await sb.from('goals').insert(state.goals.map(g => ({
+                id: g.id,
+                couple_id: COUPLE_ID,
+                emoji: g.emoji || '✨',
+                title: g.title,
+                type: g.type || 'count',
+                progress: g.progress || 0,
+                target: g.target || 100,
+                deadline: g.deadline || null,
+                milestones: JSON.stringify(g.milestones || []),
+                items: JSON.stringify(g.items || []),
+                created_at: g.createdAt ? g.createdAt + 'T00:00:00' : new Date().toISOString()
+            })));
+        }
+        // Mood settings
         try {
             await sb.from('mood_settings').delete().eq('couple_id', COUPLE_ID);
             await sb.from('mood_settings').insert({
@@ -149,10 +171,9 @@ async function saveToSupabase(state) {
                 selected_person: state.mood.selectedPerson || state.couple.name1,
                 mood_gab: state.mood.current[state.couple.name1] || null,
                 mood_avi: state.mood.current[state.couple.name2] || null
-            }).single();
-        } catch(e) { console.warn('[SUPABASE] Mood settings save failed (columns may not exist):', e.message); }
-        
-        // Answered questions (always sync)
+            });
+        } catch(e) { console.warn('[SUPABASE] Mood save:', e.message); }
+        // Answers
         try {
             await sb.from('answers').delete().eq('couple_id', COUPLE_ID);
             if (state.answeredQuestions && state.answeredQuestions.length > 0) {
@@ -165,14 +186,14 @@ async function saveToSupabase(state) {
                     created_at: a.date ? a.date + 'T00:00:00' : new Date().toISOString()
                 })));
             }
-        } catch(e) { console.warn('[SUPABASE] Answers save failed:', e.message); }
-        
-        // Current question index (always sync)
+        } catch(e) { console.warn('[SUPABASE] Answers save:', e.message); }
+        // Question index
         try {
             await sb.from('questions').delete().eq('couple_id', COUPLE_ID);
             await sb.from('questions').insert({ couple_id: COUPLE_ID, current_index: state.currentQuestion || 0 });
-        } catch(e) { console.warn('[SUPABASE] Questions save failed:', e.message); }
+        } catch(e) { console.warn('[SUPABASE] Questions save:', e.message); }
 
+        console.log('[SUPABASE] Save complete - goals:', state.goals.length, 'notes:', state.notes.length, 'trips:', state.trips.length);
         return true;
     } catch (e) {
         console.error('[SUPABASE] Save error:', e.message);
@@ -185,7 +206,7 @@ window.loadFromSupabase = loadFromSupabase;
 window.saveToSupabase = saveToSupabase;
 window.COUPLE_ID = COUPLE_ID;
 
-// Auto-initialize default couple row
+// Ensure default rows exist
 if (supabaseConfigured) {
     supabaseClient.from('couples').select('count').eq('id', COUPLE_ID).then(r => {
         if (r.count === 0) {
