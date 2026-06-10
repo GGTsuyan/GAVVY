@@ -29,7 +29,21 @@ const GAVVY = (() => {
   function load() {
     try {
       const s = localStorage.getItem('gavvy-state');
-      if (s) { Object.assign(state, JSON.parse(s)); }
+      if (s) {
+        const p = JSON.parse(s);
+        // Only overwrite arrays if they have data (prevents empty localStorage from erasing cloud data)
+        if (p.notes && p.notes.length > 0) state.notes = p.notes;
+        if (p.trips && p.trips.length > 0) state.trips = p.trips;
+        if (p.events && p.events.length > 0) state.events = p.events;
+        if (p.memories && p.memories.length > 0) state.memories = p.memories;
+        if (p.goals && p.goals.length > 0) state.goals = p.goals;
+        if (p.answeredQuestions && p.answeredQuestions.length > 0) state.answeredQuestions = p.answeredQuestions;
+        if (p.periodTracker && p.periodTracker.entries && p.periodTracker.entries.length > 0) state.periodTracker = p.periodTracker;
+        if (p.auth) state.auth = p.auth;
+        if (p.couple) state.couple = p.couple;
+        if (p.mood && p.mood.current && Object.keys(p.mood.current).length > 0) state.mood = p.mood;
+        if (p.currentQuestion !== undefined) state.currentQuestion = p.currentQuestion;
+      }
     } catch(e) {}
   }
 
